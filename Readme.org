@@ -1,0 +1,20 @@
+* Model Context Protocol Emacs sdk
+This is an Emacs client for interfacing with [[https://modelcontextprotocol.io/introduction][MCP]], supporting connections to MCP servers.
+* Installation
+1. Install Emacs 30 or higher version
+2. Add the following code to your configuration file ~/.emacs:
+   #+begin_src elisp
+     (add-to-list 'load-path "<path-to-mcp.el>")
+     (require 'mcp)
+   #+end_src
+* Usage
+** Example [[https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem][filesystem]] server.
+*** Establish the connection first.
+#+begin_src elisp
+  (mcp-connect-server "filesystem" "npx" '("-y" "@modelcontextprotocol/server-filesystem" "~/Downloads/"))
+#+end_src
+*** Define the use of tools.
+The current text is being tested using the [[https://github.com/karthink/gptel/issues/514][gptel tool]] branch.
+#+begin_src elisp
+  (mcp-make-text-gptel-tool "filesystem" "search_files" "files")
+#+end_src

@@ -247,6 +247,8 @@ NAME is the name of the server connection.
 TOOL-NAME is the name of the tool to be created.
 CATEGORY is the category under which the tool will be grouped.
 
+Currently, only synchronous messages are supported.
+
 This function retrieves the tool definition from the server connection,
 constructs a `gptel' tool with the appropriate properties, and returns it.
 The tool is configured to handle input arguments, call the server, and process
@@ -258,41 +260,45 @@ the response to extract and return text content."
       (cl-destructuring-bind (&key properties required &allow-other-keys) input-schema
         (gptel-make-tool
          :function #'(lambda (&rest args)
-                       (message "call %s args: %s" tool-name args)
-                       ;; TODO need verify args or generate a arg function
-                       ;; (unless (= (len required) (len args))
-                       ;;   (error "Error: args not match: %s -> %s" required args))
-                       (if-let* ((query-args (apply #'append
-                                                    (cl-mapcar #'(lambda (name value)
-                                                                   (list (intern
-                                                                          (concat ":" name))
-                                                                         value))
-                                                               required
-                                                               args)))
-                                 (res (mcp-call-tool connection tool-name query-args))
-                                 (contents (plist-get res :content)))
-                           (progn
-                             (string-join
-                              (cl-remove-if #'null
-                                            (mapcar #'(lambda (content)
-                                                        (when (string= "text" (plist-get content :type))
-                                                          (plist-get content :text)))
-                                                    contents))
-                              "\n"))
-                         (message "Error: call %s tool error" tool-name)))
+                       (when (< (length args) (length required))
+                         (error "Error: args not match: %s -> %s" required args))
+                       (if-let* ((connection (gethash name mcp-server-connections)))
+                           (let* ((need-length (- (/ (length properties) 2)
+                                                  (length args)))
+                                  (query-args (apply #'append
+                                                     (cl-mapcar #'(lambda (arg value)
+                                                                    (list (cl-first arg)
+                                                                          (if value
+                                                                              value
+                                                                            (plist-get (cl-second arg) :default))))
+                                                                (seq-partition properties 2)
+                                                                (append args
+                                                                        (when (> need-length 0)
+                                                                          (make-list need-length nil)))))))
+                             (if-let* ((res (mcp-call-tool connection tool-name query-args))
+                                       (contents (plist-get res :content)))
+                                 (string-join
+                                  (cl-remove-if #'null
+                                                (mapcar #'(lambda (content)
+                                                            (when (string= "text" (plist-get content :type))
+                                                              (plist-get content :text)))
+                                                        contents))
+                                  "\n")
+                               (error "Error: call %s tool error" tool-name)))
+                         (error "Error: %s server not connect" name)))
          :name tool-name
          :description description
-         :args (cl-mapcar #'(lambda (arg name)
-                              (let* ((value (cl-second arg))
-                                     (type (plist-get value :type))
-                                     (description (plist-get value :description)))
-                                (list :name name
-                                      :type type
-                                      :description (if description
-                                                       description
-                                                     name))))
-                          (seq-partition properties 2)
-                          required)
+         :args (mapcar #'(lambda (arg)
+                           (let* ((key (cl-first arg))
+                                  (value (cl-second arg))
+                                  (name (substring (symbol-name key) 1))
+                                  (new-value (plist-put value :name name)))
+                             (if (plist-member new-value :description)
+                                 new-value
+                               (plist-put new-value
+                                          :description
+                                          name))))
+                       (seq-partition properties 2))
          :category category)))))
 
 (defun mcp-async-ping (connection)

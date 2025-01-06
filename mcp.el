@@ -60,7 +60,7 @@
                                        (_result nil result-supplied-p)
                                        error
                                        _partial)
-  "Send MESSAGE, a JSON object, to CONNECTION."
+  "Send MESSAGE, a JSON object with no header to CONNECTION."
   (when method
     ;; sanitize method into a string
     (setq args
@@ -190,7 +190,15 @@
 
 ;;;###autoload
 (defun mcp-connect-server (name command args)
-  "Connect mcp server"
+  "Connect to an MCP server with the given NAME, COMMAND, and ARGS.
+
+NAME is a string representing the name of the server.
+COMMAND is a string representing the command to start the server.
+ARGS is a list of arguments to pass to the COMMAND.
+
+This function creates a new process for the server, initializes a connection,
+and sends an initialization message to the server. The connection is stored
+in the `mcp-server-connections` hash table for future reference."
   (unless (gethash name mcp-server-connections)
     (when-let* ((buffer-name (format "*Mcp %s server*" name))
                 (process-name (format "mcp-%s-server" name))
@@ -221,7 +229,10 @@
 
 ;;;###autoload
 (defun mcp-stop-server (name)
-  "Connect mcp server"
+  "Stop the MCP server with the given NAME.
+If the server is running, it will be shutdown and its connection will be removed
+from `mcp-server-connections'. If no server with the given NAME is found, a message
+will be displayed indicating that the server is not running."
   (if-let* ((connection (gethash name mcp-server-connections)))
       (progn
         (jsonrpc-shutdown connection)
@@ -232,6 +243,16 @@
 
 ;;;###autoload
 (defun mcp-make-text-gptel-tool (name tool-name category)
+  "Create a `gptel' tool with the given NAME, TOOL-NAME, and CATEGORY.
+
+NAME is the name of the server connection.
+TOOL-NAME is the name of the tool to be created.
+CATEGORY is the category under which the tool will be grouped.
+
+This function retrieves the tool definition from the server connection,
+constructs a `gptel' tool with the appropriate properties, and returns it.
+The tool is configured to handle input arguments, call the server, and process
+the response to extract and return text content."
   (when-let* ((connection (gethash name mcp-server-connections))
               (tools (mcp--tools connection))
               (tool (cl-find tool-name tools :test #'equal :key #'(lambda (tool) (plist-get tool :name)))))
@@ -284,6 +305,11 @@
          :category category)))))
 
 (defun mcp-async-ping (connection)
+  "Send an asynchronous ping request to the MCP server via CONNECTION.
+
+The function uses `jsonrpc-async-request' to send a ping request.
+On success, it displays a message with the response.
+On error, it displays an error message with the code and message from the server."
   (jsonrpc-async-request connection
                          :ping
                          nil
@@ -295,6 +321,12 @@
                                               code message))))
 
 (defun mcp-async-initialize-message (connection)
+  "Sending an `initialize' request to the CONNECTION.
+
+CONNECTION is the MCP connection object.
+
+This function sends an `initialize' request to the server
+with the client's capabilities and version information."
   (jsonrpc-async-request connection
                          :initialize
                          (list :protocolVersion "2024-11-05"
@@ -331,6 +363,12 @@
                                               code message))))
 
 (defun mcp-async-list-tools (connection)
+  "Get a list of tools from the MCP server using the provided CONNECTION.
+
+CONNECTION is the MCP connection object.
+
+This function sends a request to the server to list available tools.
+The result is stored in the `mcp--tools' slot of the CONNECTION object."
   (jsonrpc-async-request connection
                          :tools/list
                          '(:curosr nil)
@@ -345,11 +383,21 @@
                                               code message))))
 
 (defun mcp-call-tool (connection name arguments)
+  "Call a tool on the remote CONNECTION with NAME and ARGUMENTS.
+
+CONNECTION is the MCP connection object.
+NAME is the name of the tool to call.
+ARGGUMENTS is a list of arguments to pass to the tool."
   (jsonrpc-request connection
                    :tools/call
                    `(:name ,name :arguments ,arguments)))
 
 (defun mcp-async-list-prompts (connection)
+  "Get list of prompts from the MCP server using the provided CONNECTION.
+
+CONNECTION is the MCP connection object.
+
+The result is stored in the `mcp--prompts' slot of the CONNECTION object."
   (jsonrpc-async-request connection
                          :prompts/list
                          '(:curosr nil)
@@ -364,6 +412,11 @@
                                               code message))))
 
 (defun mcp-async-list-resources (connection)
+  "Get list of resources from the MCP server using the provided CONNECTION.
+
+CONNECTION is the MCP connection object.
+
+The result is stored in the `mcp--resources' slot of the CONNECTION object."
   (jsonrpc-async-request connection
                          :resources/list
                          '(:curosr nil)

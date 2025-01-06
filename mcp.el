@@ -236,10 +236,8 @@ will be displayed indicating that the server is not running."
   (if-let* ((connection (gethash name mcp-server-connections)))
       (progn
         (jsonrpc-shutdown connection)
-        (setf (gethash name
-                       mcp-server-connections)
-              nil))
-    (message "mcp %s server not start" name)))
+        (setf (gethash name mcp-server-connections) nil))
+    (message "mcp %s server not started" name)))
 
 ;;;###autoload
 (defun mcp-make-text-gptel-tool (name tool-name category)
@@ -274,13 +272,6 @@ the response to extract and return text content."
                                  (res (mcp-call-tool connection tool-name query-args))
                                  (contents (plist-get res :content)))
                            (progn
-                             (message "call %s tool %s, res: %s" tool-name res (string-join
-                                                                                (cl-remove-if #'null
-                                                                                              (mapcar #'(lambda (content)
-                                                                                                          (when (string= "text" (plist-get content :type))
-                                                                                                            (plist-get content :text)))
-                                                                                                      contents))
-                                                                                "\n"))
                              (string-join
                               (cl-remove-if #'null
                                             (mapcar #'(lambda (content)

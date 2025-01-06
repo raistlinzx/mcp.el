@@ -387,7 +387,10 @@ NAME is the name of the tool to call.
 ARGGUMENTS is a list of arguments to pass to the tool."
   (jsonrpc-request connection
                    :tools/call
-                   `(:name ,name :arguments ,arguments)))
+                   (list :name name
+                         :arguments (if arguments
+                                        arguments
+                                      #s(hash-table)))))
 
 (defun mcp-async-list-prompts (connection)
   "Get list of prompts from the MCP server using the provided CONNECTION.

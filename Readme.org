@@ -15,6 +15,41 @@ This is an Emacs client for interfacing with [[https://modelcontextprotocol.io/i
 #+end_src
 *** Define the use of tools.
 The current text is being tested using the [[https://github.com/karthink/gptel/issues/514][gptel tool]] branch.
+Use =mcp-make-text-tool= to create standard tool call data ([[https://github.com/ahyatt/llm/discussions/124][Discussions]]).
 #+begin_src elisp
-  (mcp-make-text-gptel-tool "filesystem" "search_files" "files")
+  (mcp-make-text-tool "filesystem" "search_files" "files")
+#+end_src
+This will generate a data structure where the function is an auto-generated synchronous or asynchronous lambda function for accessing the MCP server.
+#+begin_src elisp
+  (list :function #'(lambda (&rest args)
+                      ;; Synchronous or asynchronous access to the MCP server's Lambda function.
+                      )
+        :name "write_file"
+        :async nil
+        :description "Create a new file or completely overwrite an existing file with new content. Use with caution as it will overwrite existing files without warning. Handles text content with proper encoding. Only works within allowed directories."
+        :args ((:type "string" :name "path" :description "path")
+               (:type "string" :name "content" :description "content"))
+        :category "files")
+#+end_src
+*** Manual function call
+**** Synchronize
+#+begin_src elisp
+  (let ((connection (gethash "filesystem" mcp-server-connections)))
+    (mcp-call-tool "write_file" '(:path "filename or file path" :content "the file content")))
+#+end_src
+**** Asynchronous
+#+begin_src elisp
+  (let ((connection (gethash "filesystem" mcp-server-connections)))
+    (mcp-async-call-tool connection
+                         "write_file"
+                         '(:path "filename or file path" :content "the file content")
+                         #'(lambda (res)
+                             ;; handle res
+                             (mcp--parse-tool-call-result res))
+                         #'(lambda (code message)
+                             ;; handle error
+                             (format "call %s tool error with %s: %s"
+                                     tool-name
+                                     code
+                                     message))))
 #+end_src

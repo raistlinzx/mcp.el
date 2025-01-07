@@ -239,8 +239,31 @@ will be displayed indicating that the server is not running."
         (setf (gethash name mcp-server-connections) nil))
     (message "mcp %s server not started" name)))
 
+(defun mcp--parse-tool-call-result (res)
+  (string-join
+   (cl-remove-if #'null
+                 (mapcar #'(lambda (content)
+                             (when (string= "text" (plist-get content :type))
+                               (plist-get content :text)))
+                         (plist-get res :content)))
+   "\n"))
+
+(defun mcp--generate-tool-call-args (args properties)
+  (let ((need-length (- (/ (length properties) 2)
+                        (length args))))
+    (apply #'append
+           (cl-mapcar #'(lambda (arg value)
+                          (list (cl-first arg)
+                                (if value
+                                    value
+                                  (plist-get (cl-second arg) :default))))
+                      (seq-partition properties 2)
+                      (append args
+                              (when (> need-length 0)
+                                (make-list need-length nil)))))))
+
 ;;;###autoload
-(defun mcp-make-text-gptel-tool (name tool-name category)
+(defun mcp-make-text-tool (name tool-name category &optional asyncp)
   "Create a `gptel' tool with the given NAME, TOOL-NAME, and CATEGORY.
 
 NAME is the name of the server connection.
@@ -250,7 +273,7 @@ CATEGORY is the category under which the tool will be grouped.
 Currently, only synchronous messages are supported.
 
 This function retrieves the tool definition from the server connection,
-constructs a `gptel' tool with the appropriate properties, and returns it.
+constructs a basic tool with the appropriate properties, and returns it.
 The tool is configured to handle input arguments, call the server, and process
 the response to extract and return text content."
   (when-let* ((connection (gethash name mcp-server-connections))
@@ -258,35 +281,37 @@ the response to extract and return text content."
               (tool (cl-find tool-name tools :test #'equal :key #'(lambda (tool) (plist-get tool :name)))))
     (cl-destructuring-bind (&key description ((:inputSchema input-schema)) &allow-other-keys) tool
       (cl-destructuring-bind (&key properties required &allow-other-keys) input-schema
-        (gptel-make-tool
-         :function #'(lambda (&rest args)
-                       (when (< (length args) (length required))
-                         (error "Error: args not match: %s -> %s" required args))
-                       (if-let* ((connection (gethash name mcp-server-connections)))
-                           (let* ((need-length (- (/ (length properties) 2)
-                                                  (length args)))
-                                  (query-args (apply #'append
-                                                     (cl-mapcar #'(lambda (arg value)
-                                                                    (list (cl-first arg)
-                                                                          (if value
-                                                                              value
-                                                                            (plist-get (cl-second arg) :default))))
-                                                                (seq-partition properties 2)
-                                                                (append args
-                                                                        (when (> need-length 0)
-                                                                          (make-list need-length nil)))))))
-                             (if-let* ((res (mcp-call-tool connection tool-name query-args))
-                                       (contents (plist-get res :content)))
-                                 (string-join
-                                  (cl-remove-if #'null
-                                                (mapcar #'(lambda (content)
-                                                            (when (string= "text" (plist-get content :type))
-                                                              (plist-get content :text)))
-                                                        contents))
-                                  "\n")
-                               (error "Error: call %s tool error" tool-name)))
-                         (error "Error: %s server not connect" name)))
+        (list
+         :function (if asyncp
+                       #'(lambda (callback &rest args)
+                           (when (< (length args) (length required))
+                             (error "Error: args not match: %s -> %s" required args))
+                           (if-let* ((connection (gethash name mcp-server-connections)))
+                               (mcp-async-call-tool connection
+                                                    tool-name
+                                                    (mcp--generate-tool-call-args args properties)
+                                                    #'(lambda (res)
+                                                        (funcall callback
+                                                                 (mcp--parse-tool-call-result res)))
+                                                    #'(lambda (code message)
+                                                        (funcall callback
+                                                                 (format "call %s tool error with %s: %s"
+                                                                         tool-name
+                                                                         code
+                                                                         message))))
+                             (error "Error: %s server not connect" name)))
+                     #'(lambda (&rest args)
+                         (when (< (length args) (length required))
+                           (error "Error: args not match: %s -> %s" required args))
+                         (if-let* ((connection (gethash name mcp-server-connections)))
+                             (if-let* ((res (mcp-call-tool connection
+                                                           tool-name
+                                                           (mcp--generate-tool-call-args args properties))))
+                                 (mcp--parse-tool-call-result res)
+                               (error "Error: call %s tool error" tool-name))
+                           (error "Error: %s server not connect" name))))
          :name tool-name
+         :async asyncp
          :description description
          :args (mapcar #'(lambda (arg)
                            (let* ((key (cl-first arg))
@@ -391,6 +416,25 @@ ARGGUMENTS is a list of arguments to pass to the tool."
                          :arguments (if arguments
                                         arguments
                                       #s(hash-table)))))
+
+(defun mcp-async-call-tool (connection name arguments callback error-callback)
+  "Async Call a tool on the remote CONNECTION with NAME and ARGUMENTS.
+
+CONNECTION is the MCP connection object.
+NAME is the name of the tool to call.
+ARGGUMENTS is a list of arguments to pass to the tool."
+  (jsonrpc-async-request connection
+                         :tools/call
+                         (list :name name
+                               :arguments (if arguments
+                                              arguments
+                                            #s(hash-table)))
+                         :success-fn
+                         #'(lambda (res)
+                             (funcall callback res))
+                         :error-fn
+                         (jsonrpc-lambda (&key code message _data)
+                           (funcall error-callback code message))))
 
 (defun mcp-async-list-prompts (connection)
   "Get list of prompts from the MCP server using the provided CONNECTION.

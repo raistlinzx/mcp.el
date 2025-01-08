@@ -486,6 +486,40 @@ The result is stored in the `mcp--prompts' slot of the CONNECTION object."
                              (message "Sadly, mpc server reports %s: %s"
                                       code message)))))
 
+(defun mcp-get-prompt (connection name arguments)
+  "Call a prompt on the remote CONNECTION with NAME and ARGUMENTS.
+
+CONNECTION is the MCP connection object.
+NAME is the name of the prompt to call.
+ARGGUMENTS is a list of arguments to pass to the prompt"
+  (jsonrpc-request connection
+                   :prompts/get
+                   (list :name name
+                         :arguments (if arguments
+                                        arguments
+                                      #s(hash-table)))))
+
+(defun mcp-async-get-prompt (connection name arguments callback error-callback)
+  "Async Call a prompt on the remote CONNECTION with NAME and ARGUMENTS.
+
+CONNECTION is the MCP connection object.
+NAME is the name of the prompt to call.
+ARGUMENTS is a list of arguments to pass to the prompt.
+CALLBACK is a function to call on successful response.
+ERROR-CALLBACK is a function to call on error."
+  (jsonrpc-async-request connection
+                         :prompts/get
+                         (list :name name
+                               :arguments (if arguments
+                                              arguments
+                                            #s(hash-table)))
+                         :success-fn
+                         #'(lambda (res)
+                             (funcall callback res))
+                         :error-fn
+                         (jsonrpc-lambda (&key code message _data)
+                           (funcall error-callback code message))))
+
 (defun mcp-async-list-resources (connection &optional callback error-callback)
   "Get list of resources from the MCP server using the provided CONNECTION.
 

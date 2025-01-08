@@ -68,3 +68,21 @@ This will generate a data structure where the function is an auto-generated sync
                                      code
                                      message))))
 #+end_src
+*** Manual get prompt
+Since the [[https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem][filesystem]] lacks prompts, the [[https://github.com/modelcontextprotocol/servers/tree/main/src/everything][everything]] server is used for demonstration.
+**** Synchronize
+#+begin_src elisp
+  (let ((connection (gethash "everything" mcp-server-connections)))
+    (mcp-get-prompt connection "complex_prompt" '(:temperature "1.0")))
+#+end_src
+**** Asynchronous
+#+begin_src elisp
+  (let ((connection (gethash "everything" mcp-server-connections)))
+    (mcp-async-get-prompt connection
+                          "complex_prompt"
+                          '(:temperature "1.0")
+                          #'(lambda (res)
+                              (message "prompt: %s" res))
+                          #'(lambda (code message)
+                              (message "error call: %s, %s" code message))))
+#+end_src

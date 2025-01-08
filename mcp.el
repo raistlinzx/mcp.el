@@ -196,6 +196,11 @@ NAME is a string representing the name of the server.
 COMMAND is a string representing the command to start the server.
 ARGS is a list of arguments to pass to the COMMAND.
 
+INITIAL-CALLBACK is a function called when the server completes the connection.
+TOOLS-CALLBACK is a function called to handle the list of tools provided by the server.
+PROMPTS-CALLBACK is a function called to handle the list of prompts provided by the server.
+RESOURCES-CALLBACK is a function called to handle the list of resources provided by the server.
+
 This function creates a new process for the server, initializes a connection,
 and sends an initialization message to the server. The connection is stored
 in the `mcp-server-connections` hash table for future reference."
@@ -376,6 +381,8 @@ On error, it displays an error message with the code and message from the server
   "Sending an `initialize' request to the CONNECTION.
 
 CONNECTION is the MCP connection object.
+CALLBACK is a function to call upon successful initialization.
+ERROR-CALLBACK is an optional function to call if an error occurs.
 
 This function sends an `initialize' request to the server
 with the client's capabilities and version information."
@@ -399,6 +406,8 @@ with the client's capabilities and version information."
   "Get a list of tools from the MCP server using the provided CONNECTION.
 
 CONNECTION is the MCP connection object.
+CALLBACK is a function to call with the result of the request.
+ERROR-CALLBACK is an optional function to call if the request fails.
 
 This function sends a request to the server to list available tools.
 The result is stored in the `mcp--tools' slot of the CONNECTION object."
@@ -436,7 +445,9 @@ ARGGUMENTS is a list of arguments to pass to the tool."
 
 CONNECTION is the MCP connection object.
 NAME is the name of the tool to call.
-ARGGUMENTS is a list of arguments to pass to the tool."
+ARGUMENTS is a list of arguments to pass to the tool.
+CALLBACK is a function to call on success.
+ERROR-CALLBACK is a function to call on error."
   (jsonrpc-async-request connection
                          :tools/call
                          (list :name name
@@ -454,6 +465,8 @@ ARGGUMENTS is a list of arguments to pass to the tool."
   "Get list of prompts from the MCP server using the provided CONNECTION.
 
 CONNECTION is the MCP connection object.
+CALLBACK is an optional function to call on success, which will receive the CONNECTION and the list of prompts.
+ERROR-CALLBACK is an optional function to call on error, which will receive the error code and message.
 
 The result is stored in the `mcp--prompts' slot of the CONNECTION object."
   (jsonrpc-async-request connection
@@ -477,6 +490,8 @@ The result is stored in the `mcp--prompts' slot of the CONNECTION object."
   "Get list of resources from the MCP server using the provided CONNECTION.
 
 CONNECTION is the MCP connection object.
+CALLBACK is an optional function to call upon successful retrieval of resources.
+ERROR-CALLBACK is an optional function to call if an error occurs during the request.
 
 The result is stored in the `mcp--resources' slot of the CONNECTION object."
   (jsonrpc-async-request connection

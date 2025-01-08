@@ -189,7 +189,7 @@
   (message "%s connection shutdown" name))
 
 ;;;###autoload
-(defun mcp-connect-server (name command args)
+(cl-defun mcp-connect-server (name command args &key initial-callback tools-callback prompts-callback resources-callback)
   "Connect to an MCP server with the given NAME, COMMAND, and ARGS.
 
 NAME is a string representing the name of the server.
@@ -225,7 +225,37 @@ in the `mcp-server-connections` hash table for future reference."
         ;; Initialize connection
         (puthash name connection mcp-server-connections)
         ;; Send the Initialize message
-        (mcp-async-initialize-message connection)))))
+        (mcp-async-initialize-message
+         connection
+         #'(lambda (protocolVersion serverInfo capabilities)
+             (if (string= protocolVersion *MCP-VERSION*)
+                 (progn
+                   (message "[mcp] Connected! Server `MCP (%s)' now managing." (jsonrpc-name connection))
+                   (setf (mcp--capabilities connection) capabilities
+                         (mcp--server-info connection) serverInfo)
+                   ;; Notify server initialized
+                   (mcp-notify connection
+                               :notifications/initialized)
+                   (when initial-callback
+                     (funcall initial-callback connection))
+                   ;; Get prompts
+                   (when (plist-member capabilities :prompts)
+                     (mcp-async-list-prompts connection prompts-callback))
+                   ;; Get tools
+                   (when (plist-member capabilities :tools)
+                     (mcp-async-list-tools connection tools-callback))
+                   ;; Get resources
+                   (when (plist-member capabilities :resources)
+                     (mcp-async-list-resources connection resources-callback)))
+               (progn
+                 (message "[mcp] Error %s server protocolVersion(%s) not support, client Version: %s."
+                          (jsonrpc-name connection)
+                          protocolVersion
+                          *MCP-VERSION*)
+                 (mcp-stop-server (jsonrpc-name connection)))))
+         #'(lambda (code message)
+             (message "Sadly, mpc server reports %s: %s"
+                      code message)))))))
 
 ;;;###autoload
 (defun mcp-stop-server (name)
@@ -342,7 +372,7 @@ On error, it displays an error message with the code and message from the server
                                      (message "Sadly, mpc server reports %s: %s"
                                               code message))))
 
-(defun mcp-async-initialize-message (connection)
+(defun mcp-async-initialize-message (connection callback &optional error-callback)
   "Sending an `initialize' request to the CONNECTION.
 
 CONNECTION is the MCP connection object.
@@ -357,34 +387,15 @@ with the client's capabilities and version information."
                          :success-fn
                          #'(lambda (res)
                              (cl-destructuring-bind (&key protocolVersion serverInfo capabilities) res
-                               (if (string= protocolVersion *MCP-VERSION*)
-                                   (progn
-                                     (message "[mcp] Connected! Server `MCP (%s)' now managing." (jsonrpc-name connection))
-                                     (setf (mcp--capabilities connection) capabilities
-                                           (mcp--server-info connection) serverInfo)
-                                     ;; Notify server initialized
-                                     (mcp-notify connection
-                                                 :notifications/initialized)
-                                     ;; Get prompts
-                                     (when (plist-member capabilities :prompts)
-                                       (mcp-async-list-prompts connection))
-                                     ;; Get tools
-                                     (when (plist-member capabilities :tools)
-                                       (mcp-async-list-tools connection))
-                                     ;; Get resources
-                                     (when (plist-member capabilities :resources)
-                                       (mcp-async-list-resources connection)))
-                                 (progn
-                                   (message "[mcp] Error %s server protocolVersion(%s) not support, client Version: %s."
-                                            (jsonrpc-name connection)
-                                            protocolVersion
-                                            *MCP-VERSION*)
-                                   (mcp-stop-server (jsonrpc-name connection))))))
-                         :error-fn (jsonrpc-lambda (&key code message _data)
-                                     (message "Sadly, mpc server reports %s: %s"
-                                              code message))))
+                               (funcall callback protocolVersion serverInfo capabilities)))
+                         :error-fn
+                         (jsonrpc-lambda (&key code message _data)
+                           (if error-callback
+                               (funcall error-callback code message)
+                             (message "Sadly, mpc server reports %s: %s"
+                                      code message)))))
 
-(defun mcp-async-list-tools (connection)
+(defun mcp-async-list-tools (connection callback &optional error-callback)
   "Get a list of tools from the MCP server using the provided CONNECTION.
 
 CONNECTION is the MCP connection object.
@@ -399,10 +410,13 @@ The result is stored in the `mcp--tools' slot of the CONNECTION object."
                              (cl-destructuring-bind (&key tools &allow-other-keys) res
                                (setf (mcp--tools connection)
                                      tools)
-                               (message "[mcp] tools list success: %s" tools)))
-                         :error-fn (jsonrpc-lambda (&key code message _data)
-                                     (message "Sadly, mpc server reports %s: %s"
-                                              code message))))
+                               (funcall callback connection tools)))
+                         :error-fn
+                         (jsonrpc-lambda (&key code message _data)
+                           (if error-callback
+                               (funcall error-callback code message)
+                             (message "Sadly, mpc server reports %s: %s"
+                                      code message)))))
 
 (defun mcp-call-tool (connection name arguments)
   "Call a tool on the remote CONNECTION with NAME and ARGUMENTS.
@@ -436,7 +450,7 @@ ARGGUMENTS is a list of arguments to pass to the tool."
                          (jsonrpc-lambda (&key code message _data)
                            (funcall error-callback code message))))
 
-(defun mcp-async-list-prompts (connection)
+(defun mcp-async-list-prompts (connection &optional callback error-callback)
   "Get list of prompts from the MCP server using the provided CONNECTION.
 
 CONNECTION is the MCP connection object.
@@ -450,12 +464,16 @@ The result is stored in the `mcp--prompts' slot of the CONNECTION object."
                              (cl-destructuring-bind (&key prompts &allow-other-keys) res
                                (setf (mcp--prompts connection)
                                      prompts)
-                               (message "[mcp] prompts list success: %s" prompts)))
-                         :error-fn (jsonrpc-lambda (&key code message _data)
-                                     (message "Sadly, mpc server reports %s: %s"
-                                              code message))))
+                               (when callback
+                                 (funcall callback connection prompts))))
+                         :error-fn
+                         (jsonrpc-lambda (&key code message _data)
+                           (if error-callback
+                               (funcall error-callback code message)
+                             (message "Sadly, mpc server reports %s: %s"
+                                      code message)))))
 
-(defun mcp-async-list-resources (connection)
+(defun mcp-async-list-resources (connection &optional callback error-callback)
   "Get list of resources from the MCP server using the provided CONNECTION.
 
 CONNECTION is the MCP connection object.
@@ -469,10 +487,14 @@ The result is stored in the `mcp--resources' slot of the CONNECTION object."
                              (cl-destructuring-bind (&key resources &allow-other-keys) res
                                (setf (mcp--resources connection)
                                      resources)
-                               (message "[mcp] resources list success: %s" resources)))
-                         :error-fn (jsonrpc-lambda (&key code message _data)
-                                     (message "Sadly, mpc server reports %s: %s"
-                                              code message))))
+                               (when callback
+                                 (funcall callback connection resources))))
+                         :error-fn
+                         (jsonrpc-lambda (&key code message _data)
+                           (if error-callback
+                               (funcall error-callback code message)
+                             (message "Sadly, mpc server reports %s: %s"
+                                      code message)))))
 
 (provide 'mcp)
 ;;; mcp.el ends here

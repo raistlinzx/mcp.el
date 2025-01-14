@@ -348,17 +348,24 @@ the response to extract and return text content."
          :name tool-name
          :async asyncp
          :description description
-         :args (mapcar #'(lambda (arg)
-                           (let* ((key (cl-first arg))
-                                  (value (cl-second arg))
-                                  (name (substring (symbol-name key) 1))
-                                  (new-value (plist-put value :name name)))
-                             (if (plist-member new-value :description)
-                                 new-value
-                               (plist-put new-value
-                                          :description
-                                          name))))
-                       (seq-partition properties 2))
+         :args
+         (let ((need-length (- (/ (length properties) 2)
+                               (length required))))
+           (cl-mapcar #'(lambda (arg-value required-name)
+                          (pcase-let* ((`(,key ,value) arg-value))
+                            (let ((name (substring (symbol-name key)
+                                                   1)))
+                              (append value
+                                      (list :name name)
+                                      (list :optional
+                                            (when required-name
+                                              t))
+                                      (unless (plist-member value :description)
+                                        (list :description name))))))
+                      (seq-partition properties 2)
+                      (append required
+                              (when (> need-length 0)
+                                (make-list need-length nil)))))
          :category category)))))
 
 (defun mcp-async-ping (connection)

@@ -402,7 +402,7 @@ with the client's capabilities and version information."
                              (message "Sadly, mpc server reports %s: %s"
                                       code message)))))
 
-(defun mcp-async-list-tools (connection callback &optional error-callback)
+(defun mcp-async-list-tools (connection &optional callback error-callback)
   "Get a list of tools from the MCP server using the provided CONNECTION.
 
 CONNECTION is the MCP connection object.
@@ -419,7 +419,8 @@ The result is stored in the `mcp--tools' slot of the CONNECTION object."
                              (cl-destructuring-bind (&key tools &allow-other-keys) res
                                (setf (mcp--tools connection)
                                      tools)
-                               (funcall callback connection tools)))
+                               (when callback
+                                 (funcall callback connection tools))))
                          :error-fn
                          (jsonrpc-lambda (&key code message _data)
                            (if error-callback

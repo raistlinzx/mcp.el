@@ -552,6 +552,55 @@ The result is stored in the `mcp--resources' slot of the CONNECTION object."
                                (funcall error-callback code message)
                              (message "Sadly, mpc server reports %s: %s"
                                       code message)))))
+(defun mcp-read-resource (connection uri)
+  "Call a resource on the remote CONNECTION with URI.
 
+CONNECTION is the MCP connection object.
+URI is the uri of the resource to call."
+  (jsonrpc-request connection
+                   :resources/read
+                   (list :uri uri)))
+
+(defun mcp-async-read-resource (connection uri &optional callback error-callback)
+  "Call a resource on the remote CONNECTION with URI.
+
+CONNECTION is the MCP connection object.
+URI is the URI of the resource to call.
+CALLBACK is a function to call with the result on success.
+ERROR-CALLBACK is a function to call with the error code and message on failure.
+
+This function asynchronously reads a resource from the remote connection
+using the specified URI. The result is passed to CALLBACK if the request
+succeeds, or ERROR-CALLBACK if it fails."
+  (jsonrpc-async-request connection
+                         :resources/read
+                         (list :uri uri)
+                         :success-fn
+                         #'(lambda (res)
+                             (funcall callback res))
+                         :error-fn
+                         (jsonrpc-lambda (&key code message _data)
+                           (funcall error-callback code message))))
+
+(defun mcp-async-list-resource-templates (connection &optional callback error-callback)
+  "Get list of resource templates from the MCP server using the provided CONNECTION.
+
+CONNECTION is the MCP connection object.
+CALLBACK is an optional function to call upon successful retrieval of resources.
+ERROR-CALLBACK is an optional function to call if an error occurs during the request."
+  (jsonrpc-async-request connection
+                         :resources/templates/list
+                         '(:curosr nil)
+                         :success-fn
+                         #'(lambda (res)
+                             (cl-destructuring-bind (&key resourceTemplates &allow-other-keys) res
+                               (when callback
+                                 (funcall callback connection resourceTemplates))))
+                         :error-fn
+                         (jsonrpc-lambda (&key code message _data)
+                           (if error-callback
+                               (funcall error-callback code message)
+                             (message "Sadly, mpc server reports %s: %s"
+                                      code message)))))
 (provide 'mcp)
 ;;; mcp.el ends here

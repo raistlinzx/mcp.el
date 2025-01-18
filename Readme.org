@@ -86,3 +86,25 @@ Since the [[https://github.com/modelcontextprotocol/servers/tree/main/src/filesy
                           #'(lambda (code message)
                               (message "error call: %s, %s" code message))))
 #+end_src
+*** Manual get resources
+Since the [[https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem][filesystem]] lacks resources, the [[https://github.com/modelcontextprotocol/servers/tree/main/src/everything][everything]] server is used for demonstration.
+**** Synchronize
+#+begin_src elisp
+  (let ((connection (gethash "everything" mcp-server-connections)))
+    (mcp-read-resource connection "test://static/resource/1"))
+#+end_src
+**** Asynchronous
+#+begin_src elisp
+  (let ((connection (gethash "everything" mcp-server-connections)))
+    (mcp-async-read-resource connection "test://static/resource/1"
+                             #'(lambda (resource)
+                                 (message "res: %s" resource))))
+#+end_src
+*** Get resource templates
+Since the [[https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem][filesystem]] lacks resources, the [[https://github.com/modelcontextprotocol/servers/tree/main/src/everything][everything]] server is used for demonstration.
+#+begin_src elisp
+  (let ((connection (gethash "everything" mcp-server-connections)))
+    (mcp-async-list-resource-templates connection
+                                       #'(lambda (connection templates)
+                                           (message "%s" templates))))
+#+end_src

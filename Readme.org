@@ -28,7 +28,7 @@ This is an Emacs client for interfacing with [[https://modelcontextprotocol.io/i
 *** Define the use of tools.
 The current text is being tested using the [[https://github.com/karthink/gptel/issues/514][gptel tool]] branch.Use =mcp-make-text-tool= to create standard tool call data ([[https://github.com/ahyatt/llm/discussions/124][Discussions]]).It is recommended to create tools within the tools-callback or wait for the mcp connect server to complete.
 #+begin_src elisp
-  (mcp-make-text-gptel-tool "filesystem" "write_file" "files")
+  (mcp-make-text-gptel-tool "filesystem" "write_file")
 #+end_src
 This will generate a data structure where the function is an auto-generated synchronous or asynchronous lambda function for accessing the MCP server.
 #+begin_src elisp

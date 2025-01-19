@@ -298,12 +298,11 @@ will be displayed indicating that the server is not running."
                                 (make-list need-length nil)))))))
 
 ;;;###autoload
-(defun mcp-make-text-tool (name tool-name category &optional asyncp)
-  "Create a `gptel' tool with the given NAME, TOOL-NAME, and CATEGORY.
+(defun mcp-make-text-tool (name tool-name &optional asyncp)
+  "Create a `gptel' tool with the given NAME, TOOL-NAME, and ASYNCP
 
 NAME is the name of the server connection.
 TOOL-NAME is the name of the tool to be created.
-CATEGORY is the category under which the tool will be grouped.
 
 Currently, only synchronous messages are supported.
 
@@ -365,8 +364,7 @@ the response to extract and return text content."
                       (seq-partition properties 2)
                       (append required
                               (when (> need-length 0)
-                                (make-list need-length nil)))))
-         :category category)))))
+                                (make-list need-length nil))))))))))
 
 (defun mcp-async-ping (connection)
   "Send an asynchronous ping request to the MCP server via CONNECTION.

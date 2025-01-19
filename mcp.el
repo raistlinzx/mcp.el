@@ -351,16 +351,33 @@ the response to extract and return text content."
          (let ((need-length (- (/ (length properties) 2)
                                (length required))))
            (cl-mapcar #'(lambda (arg-value required-name)
-                          (pcase-let* ((`(,key ,value) arg-value))
-                            (let ((name (substring (symbol-name key)
-                                                   1)))
-                              (append value
-                                      (list :name name)
-                                      (list :optional
-                                            (when required-name
-                                              t))
-                                      (unless (plist-member value :description)
-                                        (list :description name))))))
+                          (pcase-let* ((`(,key ,value) arg-value)
+                                       (type (intern (plist-get value :type)))
+                                       (enum (plist-get value :enum)))
+                            `(,@(list :name
+                                      (substring (symbol-name key)
+                                                 1))
+                              :type ,type
+                              :description ,(if (plist-member value :description)
+                                                (plist-get value :description)
+                                              "")
+                              ,@(unless required-name
+                                  (list :optional t))
+                              ,@(when (equal type 'array)
+                                  (list :items
+                                        (let ((items (plist-get value :items)))
+                                          `(,@(list :type (intern (plist-get items :type)))
+                                            :properties ,(apply #'append
+                                                                (mapcar #'(lambda (item)
+                                                                            (pcase-let* ((`(,key ,value) item))
+                                                                              (list key
+                                                                                    (plist-put value
+                                                                                               :type
+                                                                                               (intern (plist-get value :type))))))
+                                                                        (seq-partition (plist-get items :properties) 2)))
+                                            :required ,(plist-get items :required)))))
+                              ,@(when enum
+                                  (list :enum enum)))))
                       (seq-partition properties 2)
                       (append required
                               (when (> need-length 0)

@@ -189,7 +189,7 @@
   (message "%s connection shutdown" name))
 
 ;;;###autoload
-(cl-defun mcp-connect-server (name command args &key initial-callback tools-callback prompts-callback resources-callback)
+(cl-defun mcp-connect-server (name command args &key initial-callback tools-callback prompts-callback resources-callback error-callback)
   "Connect to an MCP server with the given NAME, COMMAND, and ARGS.
 
 NAME is a string representing the name of the server.
@@ -259,6 +259,8 @@ in the `mcp-server-connections` hash table for future reference."
                           *MCP-VERSION*)
                  (mcp-stop-server (jsonrpc-name connection)))))
          #'(lambda (code message)
+             (when error-callback
+               (funcall error-callback code message))
              (message "Sadly, mpc server reports %s: %s"
                       code message)))))))
 

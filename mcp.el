@@ -380,9 +380,8 @@ the response to extract and return text content."
                                                                 (mapcar #'(lambda (item)
                                                                             (pcase-let* ((`(,key ,value) item))
                                                                               (list key
-                                                                                    (plist-put value
-                                                                                               :type
-                                                                                               (intern (plist-get value :type))))))
+                                                                                    (list :type (intern (plist-get value :type))
+                                                                                          :description (plist-get value :description)))))
                                                                         (seq-partition (plist-get items :properties) 2)))
                                             :required ,(plist-get items :required)))))
                               ,@(when enum

@@ -30,7 +30,10 @@
   "MCP support version.")
 
 (defclass mcp-process-connection (jsonrpc-process-connection)
-  ((-capabilities
+  ((-status
+    :initform 'init
+    :accessor mcp--status)
+   (-capabilities
     :initform nil
     :accessor mcp--capabilities)
    (-serverinfo
@@ -251,7 +254,9 @@ in the `mcp-server-connections` hash table for future reference."
                      (mcp-async-list-tools connection tools-callback))
                    ;; Get resources
                    (when (plist-member capabilities :resources)
-                     (mcp-async-list-resources connection resources-callback)))
+                     (mcp-async-list-resources connection resources-callback))
+                   (setf (mcp--status connection)
+                         'connected))
                (progn
                  (message "[mcp] Error %s server protocolVersion(%s) not support, client Version: %s."
                           (jsonrpc-name connection)
@@ -261,6 +266,8 @@ in the `mcp-server-connections` hash table for future reference."
          #'(lambda (code message)
              (when error-callback
                (funcall error-callback code message))
+             (setf (mcp--status connection)
+                   'error)
              (message "Sadly, mpc server reports %s: %s"
                       code message)))))))
 

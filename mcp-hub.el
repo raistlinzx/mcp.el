@@ -76,20 +76,21 @@ Example:
   (mcp-hub-get-all-tool t)  ; Get all tools asynchronously"
   (let ((res ))
     (maphash #'(lambda (name server)
-                 (when (equal (mcp--status server)
-                              'connected)
+                 (when (and server
+                          (equal (mcp--status server)
+                                 'connected))
                    (when-let* ((tools (mcp--tools server))
                                (tool-names (mapcar #'(lambda (tool) (plist-get tool :name)) tools)))
-                     (push (mapcar #'(lambda (tool-name)
-                                       (let ((tool (mcp-make-text-tool name tool-name asyncp)))
-                                         (if categoryp
-                                             (plist-put
-                                              :category
-                                              (format "mcp-%s"
-                                                      name))
-                                           tool)))
-                                   tool-names)
-                           res))))
+                     (dolist (tool-name tool-names)
+                       (push (let ((tool (mcp-make-text-tool name tool-name asyncp)))
+                               (if categoryp
+                                   (plist-put
+                                    tool
+                                    :category
+                                    (format "mcp-%s"
+                                            name))
+                                 tool))
+                             res)))))
              mcp-server-connections)
     (nreverse res)))
 

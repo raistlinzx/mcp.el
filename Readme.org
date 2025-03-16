@@ -35,6 +35,9 @@ You can use =mcp-hub-start-all-server= to start all MCP servers, such as launchi
 #+end_src
 *** Managing MCP Servers
 Use =mcp-hub= to launch the server management interface, which will automatically start all configured MCP servers.
+
+#+html: <img src="https://github.com/user-attachments/assets/31877c0b-d71a-491d-9830-2afed8d6218a" alt="mcp-hub"/>
+
 *** Keymap
 | key | function                   | description                             |
 |-----+----------------------------+-----------------------------------------|

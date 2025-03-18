@@ -187,5 +187,11 @@ Since the [[https://github.com/modelcontextprotocol/servers/tree/main/src/filesy
                                        #'(lambda (connection templates)
                                            (message "%s" templates))))
 #+end_src
+* Roadmap
+- [ ] HTTP SSE based MCP server connections
+- [ ] mcp marketplace (browser and auto install mcp server)
+- [ ] Simplified integration with other Emacs AI clients
+- [ ] Expanded documentation
+- [ ] Full MCP protocol client implementation
 * License
 This project is licensed under the GNU General Public License v3.0 - see the [[file:LICENSE][LICENSE]] file for details.

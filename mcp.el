@@ -361,8 +361,7 @@ the response to extract and return text content."
                                (length required))))
            (cl-mapcar #'(lambda (arg-value required-name)
                           (pcase-let* ((`(,key ,value) arg-value)
-                                       (type (intern (plist-get value :type)))
-                                       (enum (plist-get value :enum)))
+                                       (type (intern (plist-get value :type))))
                             `(,@(list :name
                                       (substring (symbol-name key)
                                                  1))
@@ -376,16 +375,24 @@ the response to extract and return text content."
                                   (list :items
                                         (let ((items (plist-get value :items)))
                                           `(,@(list :type (intern (plist-get items :type)))
-                                            :properties ,(apply #'append
-                                                                (mapcar #'(lambda (item)
-                                                                            (pcase-let* ((`(,key ,value) item))
-                                                                              (list key
-                                                                                    (list :type (intern (plist-get value :type))
-                                                                                          :description (plist-get value :description)))))
-                                                                        (seq-partition (plist-get items :properties) 2)))
-                                            :required ,(plist-get items :required)))))
-                              ,@(when enum
-                                  (list :enum enum)))))
+                                            ,@(when (plist-member items :properties)
+                                                (list :properties
+                                                      (apply #'append
+                                                             (mapcar #'(lambda (item)
+                                                                         (pcase-let* ((`(,key ,value) item))
+                                                                           (list key
+                                                                                 (list :type (intern (plist-get value :type))
+                                                                                       :description (plist-get value :description)))))
+                                                                     (seq-partition (plist-get items :properties) 2)))))
+                                            ,@(when (plist-member items :required)
+                                                (list :required
+                                                      (plist-get items :required)))))))
+                              ,@(when (plist-member value :enum)
+                                  (list :enum
+                                        (plist-get value :enum)))
+                              ,@(when (plist-member value :default)
+                                  (list :defalut
+                                        (plist-get value :defalut))))))
                       (seq-partition properties 2)
                       (append required
                               (when (> need-length 0)

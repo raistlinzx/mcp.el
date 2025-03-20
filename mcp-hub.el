@@ -28,14 +28,18 @@
 
 (defcustom mcp-hub-servers nil
   "Configuration for MCP servers.
-Each server configuration is a list of the form (NAME COMMAND ARGS), where:
+Each server configuration is a list of the form (NAME . (:command COMMAND :args ARGS)) or (NAME . (:url URL)), where:
 - NAME is a string identifying the server.
 - COMMAND is the command to start the server.
 - ARGS is a list of arguments passed to the command.
+- URL is a string arguments to connect sse mcp server.
 
 Example:
-  ((\"filesystem\" \"npx\" (\"-y\" \"@modelcontextprotocol/server-filesystem\" \"/path/to/directory\"))
-   (\"everything\" \"npx\" (\"-y\" \"@modelcontextprotocol/server-everything\")))"
+(setq mcp-hub-servers
+      '(;; (\"filesystem\" . (:command \"npx\" :args (\"-y\" \"@modelcontextprotocol/server-filesystem\" \"/home/lizqwer/MyProject/\")))
+        (\"fetch\" . (:command \"uvx\" :args (\"mcp-server-fetch\")))
+        (\"qdrant\" . (:url \"http://localhost:8000/sse\"))))
+"
   :group 'mcp-hub
   :type 'list)
 

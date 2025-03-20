@@ -465,10 +465,12 @@ will be displayed indicating that the server is not running."
                         (length args))))
     (apply #'append
            (cl-mapcar #'(lambda (arg value)
-                          (list (cl-first arg)
-                                (if value
-                                    value
-                                  (plist-get (cl-second arg) :default))))
+                          (when-let* ((value (if value
+                                                 value
+                                               (plist-get (cl-second arg)
+                                                          :default))))
+                            (list (cl-first arg)
+                                  value)))
                       (seq-partition properties 2)
                       (append args
                               (when (> need-length 0)

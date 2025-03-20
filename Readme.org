@@ -25,8 +25,9 @@ This is an Emacs client for interfacing with [[https://modelcontextprotocol.io/i
 *** Configuring MCP Servers
 #+begin_src elisp
   (setq mcp-hub-servers
-        '(("filesystem" "npx" ("-y" "@modelcontextprotocol/server-filesystem" "/path/example/"))
-          ("everything" "npx" ("-y" "@modelcontextprotocol/server-everything"))))
+        '(("filesystem" . (:command "npx" :args ("-y" "@modelcontextprotocol/server-filesystem" "/home/lizqwer/MyProject/")))
+          ("fetch" . (:command "uvx" :args ("mcp-server-fetch")))
+          ("qdrant" . (:url "http://localhost:8000/sse"))))
 #+end_src
 You can use =mcp-hub-start-all-server= to start all MCP servers, such as launching all MCP servers after starting Emacs.
 #+begin_src elisp
@@ -90,7 +91,7 @@ Request gptel to cease using all mcp tools.
 ** Example [[https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem][filesystem]] server.
 *** Establish the connection first.
 #+begin_src elisp
-  (mcp-connect-server "filesystem" "npx" '("-y" "@modelcontextprotocol/server-filesystem" "~/Downloads/")
+  (mcp-connect-server "filesystem" :command "npx" :args '("-y" "@modelcontextprotocol/server-filesystem" "~/Downloads/")
                       :initial-callback
                       #'(lambda (connection)
                           (message "%s connection" (jsonrpc-name connection)))

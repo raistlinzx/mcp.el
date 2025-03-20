@@ -25,12 +25,20 @@
 ;;; Code:
 
 (require 'jsonrpc)
+(require 'cl-lib)
+(require 'url)
 
 (defconst *MCP-VERSION* "2024-11-05"
   "MCP support version.")
 
+(defcustom mcp-server-start-time 60
+  "The Seconds of mcp server start time")
+
 (defclass mcp-process-connection (jsonrpc-process-connection)
-  ((-status
+  ((connection-type
+    :initarg :connection-type
+    :accessor mcp--connection-type)
+   (-status
     :initform 'init
     :accessor mcp--status)
    (-capabilities
@@ -49,6 +57,22 @@
     :initform nil
     :accessor mcp--resources))
   :documentation "A MCP connection over an Emacs process.")
+
+(defclass mcp-sse-process-connection (mcp-process-connection)
+  ((-host
+    :initarg :host
+    :accessor mcp--host)
+   (-port
+    :initarg :port
+    :accessor mcp--port)
+   (-endpoint
+    :initform nil
+    :accessor mcp--endpoint))
+  :documentation "A sse MCP connection over an Emacs process.")
+
+(defclass mcp-stdio-process-connection (mcp-process-connection)
+  ()
+  :documentation "A stdio MCP connection over an Emacs process.")
 
 (cl-defmethod initialize-instance :after ((mcp mcp-process-connection) slots)
   (cl-destructuring-bind (&key ((:process proc)) name &allow-other-keys) slots
@@ -77,9 +101,31 @@
                      (method 'notification)))
          (converted (jsonrpc-convert-to-endpoint connection args kind))
          (json (jsonrpc--json-encode converted)))
-    (process-send-string
-     (jsonrpc--process connection)
-     (format "%s\r\n" json))
+    (pcase (mcp--connection-type connection)
+      ('sse
+       (let ((url-request-method "POST")
+             (url-request-extra-headers
+              '(("Content-Type" . "application/json")))
+             (url-request-data (encode-coding-string
+                                json
+                                'utf-8))
+             (url (format "http://%s:%s%s"
+                          (mcp--host connection)
+                          (mcp--port connection)
+                          (mcp--endpoint connection))))
+         (url-retrieve url
+                       #'(lambda (status)
+                           (when (buffer-live-p (current-buffer))
+                             (goto-char (point-min))
+                             (when (search-forward "\n\n" nil t)
+                               (let* ((headers (buffer-substring (point-min) (point)))
+                                      (body (buffer-substring (point) (point-max)))
+                                      (response-code (string-match "HTTP/.* \\([0-9]+\\)" headers)))))
+                             (kill-buffer))))))
+      ('stdio
+       (process-send-string
+        (jsonrpc--process connection)
+        (format "%s\r\n" json))))
     (jsonrpc--event
      connection
      'client
@@ -87,6 +133,13 @@
      :kind  kind
      :message args
      :foreign-message converted)))
+
+(defun mcp--get-data (lines)
+  "Extract data from event lines."
+  (let ((data-line (car (seq-filter (lambda (line) (string-prefix-p "data: " line)) lines))))
+    (if data-line
+        (substring data-line (length "data: "))
+      nil)))
 
 (defvar mcp--in-process-filter nil
   "Non-nil if inside `mcp--process-filter'.")
@@ -121,26 +174,57 @@
                   (done nil))
               (let ((messages (split-string string "\n")))
                 (dolist (msg messages)
-                  (when (not (string-empty-p msg))
-                    (setq message
-                          (condition-case-unless-debug oops
-                              (json-parse-string msg
-                                                 :object-type 'plist
-                                                 :null-object nil
-                                                 :false-object :json-false)
-                            (error
-                             (jsonrpc--warn "Invalid JSON: %s %s"
-                                            (cdr oops) (buffer-string))
-                             nil)))
-                    (when message
-                      (setq message
-                            (plist-put message :jsonrpc-json
-                                       (buffer-string)))
-                      ;; Put new messages at the front of the queue,
-                      ;; this is correct as the order is reversed
-                      ;; before putting the timers on `timer-list'.
-                      (push message
-                            (process-get proc 'jsonrpc-mqueue)))))
+                  (pcase (mcp--connection-type conn)
+                    ('sse
+                     (when (and (not (string-empty-p msg))
+                              (string-prefix-p "event: " msg))
+                       (when-let* ((event-type (substring msg (length "event: ")))
+                                   (data (mcp--get-data messages)))
+                         (cond ((string= event-type "endpoint")
+                                (setf (mcp--endpoint conn)
+                                      data))
+                               ((string= event-type "message")
+                                (progn
+                                  (setq message
+                                        (condition-case-unless-debug oops
+                                            (json-parse-string data
+                                                               :object-type 'plist
+                                                               :null-object nil
+                                                               :false-object :json-false)
+                                          (error
+                                           (jsonrpc--warn "Invalid JSON: %s %s"
+                                                          (cdr oops) data)
+                                           nil)))
+                                  (when message
+                                    (setq message
+                                          (plist-put message :jsonrpc-json
+                                                     data))
+                                    ;; Put new messages at the front of the queue,
+                                    ;; this is correct as the order is reversed
+                                    ;; before putting the timers on `timer-list'.
+                                    (push message
+                                          (process-get proc 'jsonrpc-mqueue)))))))))
+                    ('stdio
+                     (when (not (string-empty-p msg))
+                       (setq message
+                             (condition-case-unless-debug oops
+                                 (json-parse-string msg
+                                                    :object-type 'plist
+                                                    :null-object nil
+                                                    :false-object :json-false)
+                               (error
+                                (jsonrpc--warn "Invalid JSON: %s %s"
+                                               (cdr oops) (buffer-string))
+                                nil)))
+                       (when message
+                         (setq message
+                               (plist-put message :jsonrpc-json
+                                          (buffer-string)))
+                         ;; Put new messages at the front of the queue,
+                         ;; this is correct as the order is reversed
+                         ;; before putting the timers on `timer-list'.
+                         (push message
+                               (process-get proc 'jsonrpc-mqueue)))))))
                 (let ((inhibit-read-only t))
                   (delete-region (point-min) (point)))))
           ;; Saved parsing state for next visit to this filter, which
@@ -168,6 +252,18 @@
                                     (list conn msg))
                 (timer-activate timer))))))))
 
+(defun mcp--sse-connect (process host port path)
+  (process-send-string process
+                       (concat
+                        (format "GET %s HTTP/1.1\r\n"
+                                path)
+                        (format "Host: %s:%s\r\n"
+                                host
+                                port)
+                        "Accept: text/event-stream\r\n"
+                        "Cache-Control: no-cache\r\n"
+                        "Connection: keep-alive\r\n\r\n")))
+
 (cl-defun mcp-notify (connection method &optional (params nil))
   "Notify CONNECTION of something, don't expect a reply."
   (apply #'jsonrpc-connection-send
@@ -191,13 +287,32 @@
   "When mcp server shutdown."
   (message "%s connection shutdown" name))
 
+(defun mcp--parse-http-url (url)
+  (when-let* ((url (url-generic-parse-url url))
+              (type (url-type url))
+              (host (url-host url))
+              (filename (url-filename url)))
+    (when (or (string= type "http")
+             (string= type "https"))
+      (let ((port (url-port url))
+            (tls (string= "https" type)))
+        (list :tls tls
+              :host host
+              :port (if port
+                        port
+                      (if tls
+                          443
+                        80))
+              :path filename)))))
+
 ;;;###autoload
-(cl-defun mcp-connect-server (name command args &key initial-callback tools-callback prompts-callback resources-callback error-callback)
+(cl-defun mcp-connect-server (name &key command args url initial-callback tools-callback prompts-callback resources-callback error-callback)
   "Connect to an MCP server with the given NAME, COMMAND, and ARGS.
 
 NAME is a string representing the name of the server.
-COMMAND is a string representing the command to start the server.
+COMMAND is a string representing the command to start the server in stdio mcp server.
 ARGS is a list of arguments to pass to the COMMAND.
+URL is a string arguments to connect sse mcp server.
 
 INITIAL-CALLBACK is a function called when the server completes the connection.
 TOOLS-CALLBACK is a function called to handle the list of tools provided by the server.
@@ -208,68 +323,121 @@ This function creates a new process for the server, initializes a connection,
 and sends an initialization message to the server. The connection is stored
 in the `mcp-server-connections` hash table for future reference."
   (unless (gethash name mcp-server-connections)
-    (when-let* ((buffer-name (format "*Mcp %s server*" name))
+    (when-let* ((server-config (cond ((and command
+                                         args)
+                                      (list :connection-type 'stdio
+                                            :command command
+                                            :args args))
+                                     (url
+                                      (when-let* ((res (mcp--parse-http-url url)))
+                                        (plist-put res
+                                                   :connection-type 'sse)))))
+                (connection-type (plist-get server-config :connection-type))
+                (buffer-name (format "*Mcp %s server*" name))
                 (process-name (format "mcp-%s-server" name))
-                (process (make-process
-                          :name name
-                          :command (append (list command)
-                                           args)
-                          :connection-type 'pipe
-                          :coding 'utf-8-emacs-unix
-                          ;; :noquery t
-                          :stderr (get-buffer-create
-                                   (format "*%s stderr*" name))
-                          ;; :file-handler t
-                          )))
-      (let ((connection (make-instance 'mcp-process-connection
-                                       :name name
-                                       :process process
-                                       :request-dispatcher #'(lambda (method params)
-                                                               (funcall #'mcp-request-dispatcher name method params))
-                                       :notification-dispatcher #'(lambda (method params)
-                                                                    (funcall #'mcp-notification-dispatcher name method params))
-                                       :on-shutdown #'(lambda (connection)
-                                                        (funcall #'mcp-on-shutdown name connection)))))
+                (process (pcase connection-type
+                           ('sse
+                            (open-network-stream process-name
+                                                 buffer-name
+                                                 (plist-get server-config :host)
+                                                 (plist-get server-config :port)
+                                                 :type (if (plist-get server-config :tls)
+                                                           'tls
+                                                         'network)))
+                           ('stdio
+                            (make-process
+                             :name name
+                             :command (append (list command)
+                                              args)
+                             :connection-type 'pipe
+                             :coding 'utf-8-emacs-unix
+                             ;; :noquery t
+                             :stderr (get-buffer-create
+                                      (format "*%s stderr*" name))
+                             ;; :file-handler t
+                             )))))
+      (when (equal connection-type 'sse)
+        (mcp--sse-connect process
+                          (plist-get server-config :host)
+                          (plist-get server-config :port)
+                          (plist-get server-config :path)))
+      (let ((connection (apply #'make-instance
+                               `(,(pcase connection-type
+                                    ('sse
+                                     'mcp-sse-process-connection)
+                                    ('stdio
+                                     'mcp-stdio-process-connection))
+                                 :connection-type ,connection-type
+                                 :name ,name
+                                 :process ,process
+                                 :request-dispatcher ,(lambda (method params)
+                                                        (funcall #'mcp-request-dispatcher name method params))
+                                 :notification-dispatcher ,(lambda (method params)
+                                                             (funcall #'mcp-notification-dispatcher name method params))
+                                 :on-shutdown ,(lambda (connection)
+                                                 (funcall #'mcp-on-shutdown name connection))
+                                 ,@(when (equal connection-type 'sse)
+                                     (list :host (plist-get server-config :host)
+                                           :port (plist-get server-config :port))))))
+            (initial-use-time 0)
+            (initial-timer nil))
         ;; Initialize connection
         (puthash name connection mcp-server-connections)
+        (when (equal connection-type 'sse)
+          (setf (mcp--status connection)
+                'waitendpoint))
         ;; Send the Initialize message
-        (mcp-async-initialize-message
-         connection
-         #'(lambda (protocolVersion serverInfo capabilities)
-             (if (string= protocolVersion *MCP-VERSION*)
-                 (progn
-                   (message "[mcp] Connected! Server `MCP (%s)' now managing." (jsonrpc-name connection))
-                   (setf (mcp--capabilities connection) capabilities
-                         (mcp--server-info connection) serverInfo)
-                   ;; Notify server initialized
-                   (mcp-notify connection
-                               :notifications/initialized)
-                   (when initial-callback
-                     (funcall initial-callback connection))
-                   ;; Get prompts
-                   (when (plist-member capabilities :prompts)
-                     (mcp-async-list-prompts connection prompts-callback))
-                   ;; Get tools
-                   (when (plist-member capabilities :tools)
-                     (mcp-async-list-tools connection tools-callback))
-                   ;; Get resources
-                   (when (plist-member capabilities :resources)
-                     (mcp-async-list-resources connection resources-callback))
-                   (setf (mcp--status connection)
-                         'connected))
-               (progn
-                 (message "[mcp] Error %s server protocolVersion(%s) not support, client Version: %s."
-                          (jsonrpc-name connection)
-                          protocolVersion
-                          *MCP-VERSION*)
-                 (mcp-stop-server (jsonrpc-name connection)))))
-         #'(lambda (code message)
-             (when error-callback
-               (funcall error-callback code message))
-             (setf (mcp--status connection)
-                   'error)
-             (message "Sadly, mpc server reports %s: %s"
-                      code message)))))))
+        (setf initial-timer
+              (run-with-idle-timer
+               1
+               t
+               #'(lambda ()
+                   (incf initial-use-time)
+                   (when (or (equal connection-type 'stdio)
+                            (and (equal connection-type 'sse)
+                               (mcp--endpoint connection)))
+                     (cancel-timer initial-timer)
+                     (mcp-async-initialize-message
+                      connection
+                      #'(lambda (protocolVersion serverInfo capabilities)
+                          (if (string= protocolVersion *MCP-VERSION*)
+                              (progn
+                                (message "[mcp] Connected! Server `MCP (%s)' now managing." (jsonrpc-name connection))
+                                (setf (mcp--capabilities connection) capabilities
+                                      (mcp--server-info connection) serverInfo)
+                                ;; Notify server initialized
+                                (mcp-notify connection
+                                            :notifications/initialized)
+                                (when initial-callback
+                                  (funcall initial-callback connection))
+                                ;; Get prompts
+                                (when (plist-member capabilities :prompts)
+                                  (mcp-async-list-prompts connection prompts-callback))
+                                ;; Get tools
+                                (when (plist-member capabilities :tools)
+                                  (mcp-async-list-tools connection tools-callback))
+                                ;; Get resources
+                                (when (plist-member capabilities :resources)
+                                  (mcp-async-list-resources connection resources-callback))
+                                (setf (mcp--status connection)
+                                      'connected))
+                            (progn
+                              (message "[mcp] Error %s server protocolVersion(%s) not support, client Version: %s."
+                                       (jsonrpc-name connection)
+                                       protocolVersion
+                                       *MCP-VERSION*)
+                              (mcp-stop-server (jsonrpc-name connection)))))
+                      #'(lambda (code message)
+                          (when error-callback
+                            (funcall error-callback code message))
+                          (setf (mcp--status connection)
+                                'error)
+                          (message "Sadly, mpc server reports %s: %s"
+                                   code message)))
+                     (when (> initial-use-time mcp-server-start-time)
+                       (mcp-stop-server name)
+                       (cancel-timer initial-timer)
+                       (message "Sadly: mcp server start error timeout"))))))))))
 
 ;;;###autoload
 (defun mcp-stop-server (name)

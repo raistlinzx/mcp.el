@@ -41,7 +41,8 @@ Example:
 
 (defun mcp-hub--start-server (server)
   (apply #'mcp-connect-server
-         (append server
+         (append (list (car server))
+                 (cdr server)
                  (list :initial-callback
                        #'(lambda (connection)
                            (mcp-hub-update))
@@ -103,7 +104,10 @@ if it's not already running."
   (mapcar #'(lambda (server)
               (unless (gethash (car server)
                                mcp-server-connections)
-                (mcp-hub--start-server server)))
+                (condition-case err
+                    (mcp-hub--start-server server)
+                  (error
+                   (message "start %s server error: %s" err)))))
           mcp-hub-servers))
 
 ;;;###autoload
@@ -132,19 +136,20 @@ It's useful for applying configuration changes or recovering from errors."
   "Retrieve status information for all configured servers.
 Returns a list of server statuses, where each status is a plist containing:
 - :name - The server's name
-- :type - Either 'connected or 'stop
+- :status - Either 'connected or 'stop
 - :tools - Available tools (if connected)
 - :resources - Available resources (if connected)
 - :prompts - Available prompts (if connected)"
   (mapcar #'(lambda (server)
-              (pcase-let ((`(,name ,_ ,_) server))
+              (let ((name (car server)))
                 (if-let* ((connection (gethash name mcp-server-connections)))
                     (list :name name
-                          :type (mcp--status connection)
+                          :type (mcp--connection-type connection)
+                          :status (mcp--status connection)
                           :tools (mcp--tools connection)
                           :resources (mcp--resources connection)
                           :prompts (mcp--prompts connection))
-                  (list :name name :type 'stop))))
+                  (list :name name :status 'stop))))
           mcp-hub-servers))
 
 (defun mcp-hub-update (&optional arg silent)
@@ -157,18 +162,19 @@ including connection status, available tools, resources, and prompts."
   (when-let* ((server-list (mcp-hub-get-servers))
               (server-show (mapcar #'(lambda (server)
                                        (let* ((name (plist-get server :name))
-                                              (type (plist-get server :type)))
+                                              (status (plist-get server :status)))
                                          (append (list name
-                                                       (pcase type
+                                                       (symbol-name (plist-get server :type))
+                                                       (pcase status
                                                          ('connected
-                                                          (propertize (symbol-name type)
+                                                          (propertize (symbol-name status)
                                                                       'face 'success))
                                                          ('error
-                                                          (propertize (symbol-name type)
+                                                          (propertize (symbol-name status)
                                                                       'face 'error))
                                                          (_
-                                                          (symbol-name type))))
-                                                 (if (equal type 'connected)
+                                                          (symbol-name status))))
+                                                 (if (equal status 'connected)
                                                      (mapcar #'(lambda (x)
                                                                  (format "%d"
                                                                          (length x)))
@@ -249,7 +255,8 @@ currently highlighted in the *Mcp-Hub* buffer."
   (setq-local revert-buffer-function #'mcp-hub-update)
   (setq tabulated-list-format
         [("Name" 18 t)
-         ("Status" 10 t)
+         ("Type" 10 t)
+         ("Status" 15 t)
          ("Tools" 10 t)
          ("Resources" 10 t)
          ("Prompts" 10 t)])

@@ -177,7 +177,7 @@ including connection status, available tools, resources, and prompts."
                                                                    (plist-get server :prompts)))
                                                    (list "nil" "nil" "nil")))))
                                    server-list)))
-    (with-current-buffer "*Mcp-Hub*"
+    (with-current-buffer (get-buffer-create "*Mcp-Hub*")
       (setq tabulated-list-entries
             (cl-mapcar #'(lambda (statu index)
                            (list (format "%d" index)

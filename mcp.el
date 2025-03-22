@@ -612,7 +612,7 @@ with the client's capabilities and version information."
                                :clientInfo '(:name "mcp-emacs" :version "0.1.0"))
                          :success-fn
                          #'(lambda (res)
-                             (cl-destructuring-bind (&key protocolVersion serverInfo capabilities) res
+                             (cl-destructuring-bind (&key protocolVersion serverInfo capabilities &allow-other-keys) res
                                (funcall callback protocolVersion serverInfo capabilities)))
                          :error-fn
                          (jsonrpc-lambda (&key code message _data)

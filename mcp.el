@@ -306,13 +306,14 @@
               :path filename)))))
 
 ;;;###autoload
-(cl-defun mcp-connect-server (name &key command args url initial-callback tools-callback prompts-callback resources-callback error-callback)
+(cl-defun mcp-connect-server (name &key command args url env initial-callback tools-callback prompts-callback resources-callback error-callback)
   "Connect to an MCP server with the given NAME, COMMAND, and ARGS.
 
 NAME is a string representing the name of the server.
 COMMAND is a string representing the command to start the server in stdio mcp server.
 ARGS is a list of arguments to pass to the COMMAND.
 URL is a string arguments to connect sse mcp server.
+ENV is a plist argument to set mcp server env.
 
 INITIAL-CALLBACK is a function called when the server completes the connection.
 TOOLS-CALLBACK is a function called to handle the list of tools provided by the server.
@@ -345,17 +346,28 @@ in the `mcp-server-connections` hash table for future reference."
                                                            'tls
                                                          'network)))
                            ('stdio
-                            (make-process
-                             :name name
-                             :command (append (list command)
-                                              args)
-                             :connection-type 'pipe
-                             :coding 'utf-8-emacs-unix
-                             ;; :noquery t
-                             :stderr (get-buffer-create
-                                      (format "*%s stderr*" name))
-                             ;; :file-handler t
-                             )))))
+                            (let ((env (mapcar #'(lambda (item)
+                                                   (pcase-let* ((`(,key ,value) item))
+                                                     (let ((key (symbol-name key)))
+                                                       (list (substring key 1)
+                                                             (format "%s" value)))))
+                                               (seq-partition env 2)))
+                                  (process-environment (copy-sequence process-environment)))
+                              (when env
+                                (mapcar (lambda (elem)
+                                          (setenv (car elem) (cadr elem)))
+                                        env))
+                              (make-process
+                               :name name
+                               :command (append (list command)
+                                                args)
+                               :connection-type 'pipe
+                               :coding 'utf-8-emacs-unix
+                               ;; :noquery t
+                               :stderr (get-buffer-create
+                                        (format "*%s stderr*" name))
+                               ;; :file-handler t
+                               ))))))
       (when (equal connection-type 'sse)
         (mcp--sse-connect process
                           (plist-get server-config :host)

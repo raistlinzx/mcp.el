@@ -27,7 +27,14 @@ This is an Emacs client for interfacing with [[https://modelcontextprotocol.io/i
   (setq mcp-hub-servers
         '(("filesystem" . (:command "npx" :args ("-y" "@modelcontextprotocol/server-filesystem" "/home/lizqwer/MyProject/")))
           ("fetch" . (:command "uvx" :args ("mcp-server-fetch")))
-          ("qdrant" . (:url "http://localhost:8000/sse"))))
+          ("qdrant" . (:url "http://localhost:8000/sse"))
+          ("graphilit" . (
+                          :command "npx"
+                          :args ("-y" "graphlit-mcp-server")
+                          :env (
+                                :GRAPHLIT_ORGANIZATION_ID "your-organization-id"
+                                :GRAPHLIT_ENVIRONMENT_ID "your-environment-id"
+                                :GRAPHLIT_JWT_SECRET "your-jwt-secret")))))
 #+end_src
 You can use =mcp-hub-start-all-server= to start all MCP servers, such as launching all MCP servers after starting Emacs.
 #+begin_src elisp

@@ -189,7 +189,7 @@ Since the [[https://github.com/modelcontextprotocol/servers/tree/main/src/filesy
                                            (message "%s" templates))))
 #+end_src
 * Roadmap
-- [ ] HTTP SSE based MCP server connections
+- [X] HTTP SSE based MCP server connections
 - [ ] mcp marketplace (browser and auto install mcp server)
 - [ ] Simplified integration with other Emacs AI clients
 - [ ] Expanded documentation

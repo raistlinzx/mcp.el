@@ -324,8 +324,7 @@ This function creates a new process for the server, initializes a connection,
 and sends an initialization message to the server. The connection is stored
 in the `mcp-server-connections` hash table for future reference."
   (unless (gethash name mcp-server-connections)
-    (when-let* ((server-config (cond ((and command
-                                         args)
+    (when-let* ((server-config (cond (command
                                       (list :connection-type 'stdio
                                             :command command
                                             :args args))
@@ -360,7 +359,7 @@ in the `mcp-server-connections` hash table for future reference."
                               (make-process
                                :name name
                                :command (append (list command)
-                                                args)
+                                                (plist-get server-config :args))
                                :connection-type 'pipe
                                :coding 'utf-8-emacs-unix
                                ;; :noquery t

@@ -3,7 +3,10 @@
 ;; Copyright (C) 2025  lizqwer scott
 
 ;; Author: lizqwer scott <lizqwerscott@gmail.com>
-;; Keywords: lisp
+;; Version: 0.1.0
+;; Package-Requires: ((emacs "29.4") (jsonrpc "1.0.16"))
+;; Keywords: ai, mcp
+;; URL: https://github.com/lizqwerscott/mcp.el
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by

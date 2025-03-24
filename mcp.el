@@ -32,7 +32,9 @@
   "MCP support version.")
 
 (defcustom mcp-server-start-time 60
-  "The Seconds of mcp server start time")
+  "The Seconds of mcp server start time"
+  :group 'mcp
+  :type 'integer)
 
 (defclass mcp-process-connection (jsonrpc-process-connection)
   ((connection-type

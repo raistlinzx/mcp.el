@@ -41,7 +41,7 @@ Example:
         (\"qdrant\" . (:url \"http://localhost:8000/sse\"))))
 "
   :group 'mcp-hub
-  :type 'list)
+  :type '(list (cons string (list symbol string))))
 
 (defun mcp-hub--start-server (server)
   (apply #'mcp-connect-server

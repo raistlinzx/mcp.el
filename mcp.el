@@ -403,7 +403,7 @@ in the `mcp-server-connections` hash table for future reference."
                1
                t
                #'(lambda ()
-                   (incf initial-use-time)
+                   (cl-incf initial-use-time)
                    (when (or (equal connection-type 'stdio)
                             (and (equal connection-type 'sse)
                                (mcp--endpoint connection)))

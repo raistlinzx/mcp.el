@@ -467,7 +467,91 @@ will be displayed indicating that the server is not running."
         (setf (gethash name mcp-server-connections) nil))
     (message "mcp %s server not started" name)))
 
+(defun mcp--parse-json-schema (input-schema)
+  "Parse a JSON schema into a structured Elisp representation.
+
+INPUT-SCHEMA is a plist representing the JSON schema to parse.
+
+The function processes the schema recursively, handling objects, arrays, and other
+primitive types. For objects, it extracts properties and required fields. For
+arrays, it processes the item schema. Other types are preserved with optional
+descriptions, enums, or default values.
+
+Returns a plist representing the parsed schema, or nil if the input is invalid."
+  (when-let* ((type (intern (plist-get input-schema :type))))
+    (pcase type
+      ('object
+       (cl-destructuring-bind (&key properties required &allow-other-keys) input-schema
+         (list
+          :type type
+          :properties (cl-mapcar #'(lambda (arg-value)
+                                     (pcase-let* ((`(,key ,value) arg-value))
+                                       (list key (mcp--parse-json-schema value))))
+                                 (seq-partition properties 2))
+          :required required)))
+      (_
+       `(
+         :type ,type
+         :description ,(if (plist-member input-schema :description)
+                           (plist-get input-schema :description)
+                         "")
+         ,@(when (equal type 'array)
+             (list :items
+                   (let ((items (plist-get input-schema :items)))
+                     `(,@(list :type (intern (plist-get items :type)))
+                       ,@(when (plist-member items :properties)
+                           (list :properties
+                                 (apply #'append
+                                        (mapcar #'(lambda (item)
+                                                    (pcase-let* ((`(,key ,value) item))
+                                                      (list key (mcp--parse-json-schema value))))
+                                                (seq-partition (plist-get items :properties) 2)))))
+                       ,@(when (plist-member items :required)
+                           (list :required
+                                 (plist-get items :required)))))))
+         ,@(when (plist-member input-schema :enum)
+             (list :enum
+                   (plist-get input-schema :enum)))
+         ,@(when (plist-member input-schema :default)
+             (list :defalut
+                   (plist-get input-schema :defalut))))))))
+
+(defun mcp--parse-tool-args (properties required)
+  "Parse tool arguments from PROPERTIES and REQUIRED lists.
+
+PROPERTIES is a plist of tool argument properties.
+REQUIRED is a list of required argument names.
+
+The function processes each argument in PROPERTIES, marking optional arguments
+if they are not in REQUIRED. Each argument is parsed into a structured plist
+with :name, :type, and :optional fields.
+
+Returns a list of parsed argument plists."
+  (let ((need-length (- (/ (length properties) 2)
+                        (length required))))
+    (cl-mapcar #'(lambda (arg-value required-name)
+                   (pcase-let* ((`(,key ,value) arg-value))
+                     (append (list :name
+                                   (substring (symbol-name key)
+                                              1))
+                             (mcp--parse-json-schema value)
+                             (unless required-name
+                               (list :optional t)))))
+               (seq-partition properties 2)
+               (append required
+                       (when (> need-length 0)
+                         (make-list need-length nil))))))
+
+
 (defun mcp--parse-tool-call-result (res)
+  "Parse the result of a tool call from RES.
+
+RES is a plist representing the tool call result.
+
+The function extracts text content from the result, concatenating it into
+a single string if multiple text entries are present.
+
+Returns the concatenated text or nil if no text content is found."
   (string-join
    (cl-remove-if #'null
                  (mapcar #'(lambda (content)
@@ -543,46 +627,7 @@ the response to extract and return text content."
          :async asyncp
          :description description
          :args
-         (let ((need-length (- (/ (length properties) 2)
-                               (length required))))
-           (cl-mapcar #'(lambda (arg-value required-name)
-                          (pcase-let* ((`(,key ,value) arg-value)
-                                       (type (intern (plist-get value :type))))
-                            `(,@(list :name
-                                      (substring (symbol-name key)
-                                                 1))
-                              :type ,type
-                              :description ,(if (plist-member value :description)
-                                                (plist-get value :description)
-                                              "")
-                              ,@(unless required-name
-                                  (list :optional t))
-                              ,@(when (equal type 'array)
-                                  (list :items
-                                        (let ((items (plist-get value :items)))
-                                          `(,@(list :type (intern (plist-get items :type)))
-                                            ,@(when (plist-member items :properties)
-                                                (list :properties
-                                                      (apply #'append
-                                                             (mapcar #'(lambda (item)
-                                                                         (pcase-let* ((`(,key ,value) item))
-                                                                           (list key
-                                                                                 (list :type (intern (plist-get value :type))
-                                                                                       :description (plist-get value :description)))))
-                                                                     (seq-partition (plist-get items :properties) 2)))))
-                                            ,@(when (plist-member items :required)
-                                                (list :required
-                                                      (plist-get items :required)))))))
-                              ,@(when (plist-member value :enum)
-                                  (list :enum
-                                        (plist-get value :enum)))
-                              ,@(when (plist-member value :default)
-                                  (list :defalut
-                                        (plist-get value :defalut))))))
-                      (seq-partition properties 2)
-                      (append required
-                              (when (> need-length 0)
-                                (make-list need-length nil))))))))))
+         (mcp--parse-tool-args properties required))))))
 
 (defun mcp-async-ping (connection)
   "Send an asynchronous ping request to the MCP server via CONNECTION.

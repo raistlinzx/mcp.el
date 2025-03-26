@@ -561,6 +561,15 @@ Returns the concatenated text or nil if no text content is found."
    "\n"))
 
 (defun mcp--generate-tool-call-args (args properties)
+  "Generate tool call arguments from ARGS and PROPERTIES.
+
+ARGS is a list of argument values provided by the caller.
+PROPERTIES is a plist of tool argument properties.
+
+The function matches ARGS to PROPERTIES, filling in default values for missing
+optional arguments. It ensures the generated arguments match the tool's schema.
+
+Returns a plist of argument names and values ready for tool invocation."
   (let ((need-length (- (/ (length properties) 2)
                         (length args))))
     (apply #'append

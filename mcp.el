@@ -39,6 +39,27 @@
   :group 'mcp
   :type 'integer)
 
+(defcustom mcp-log-level 'info
+  "The min log level for mcp server.
+Available levels:
+- debug: Detailed debugging information (function entry/exit points)
+- info: General informational messages (operation progress updates)
+- notice: Normal but significant events (configuration changes)
+- warning: Warning conditions (deprecated feature usage)
+- error: Error conditions (operation failures)
+- critical: Critical conditions (system component failures)
+- alert: Action must be taken immediately (data corruption detected)
+- emergency: System is unusable (complete system failure)"
+  :group 'mcp
+  :type '(choice (const :tag "debug" 'debug)
+                 (const :tag "info" 'info)
+                 (const :tag "notice" 'notice)
+                 (const :tag "warning" 'warning)
+                 (const :tag "error" 'error)
+                 (const :tag "critical" 'critical)
+                 (const :tag "alert" 'alert)
+                 (const :tag "emergency" 'emergency)))
+
 (defclass mcp-process-connection (jsonrpc-process-connection)
   ((connection-type
     :initarg :connection-type
@@ -280,9 +301,24 @@
   "Handle mcp server method."
   (message "%s Received request: method=%s, params=%s" name method params))
 
-(defun mcp-notification-dispatcher (name method params)
+(defun mcp-notification-dispatcher (connection name method params)
   "Handle mcp server notification."
-  (message "%s Received notification: method=%s, params=%s" name method params))
+  (pcase method
+    ('notifications/message
+     (cond ((or (plist-member (mcp--capabilities connection) :logging)
+               (and (plist-member params :level)
+                  (plist-member params :data)))
+            (cl-destructuring-bind (&key level data &allow-other-keys) params
+              (let ((logger (plist-get params :logger)))
+                (message "[mcp][%s][%s]%s: %s"
+                         name
+                         level
+                         (if logger
+                             (format "[%s]" logger)
+                           "")
+                         data))))))
+    (_
+     (message "%s Received notification: method=%s, params=%s" name method params))))
 
 (defun mcp-on-shutdown (name connection)
   "When mcp server shutdown."
@@ -382,10 +418,10 @@ in the `mcp-server-connections` hash table for future reference."
                                  :connection-type ,connection-type
                                  :name ,name
                                  :process ,process
-                                 :request-dispatcher ,(lambda (method params)
+                                 :request-dispatcher ,(lambda (connection method params)
                                                         (funcall #'mcp-request-dispatcher name method params))
-                                 :notification-dispatcher ,(lambda (method params)
-                                                             (funcall #'mcp-notification-dispatcher name method params))
+                                 :notification-dispatcher ,(lambda (connection method params)
+                                                             (funcall #'mcp-notification-dispatcher connection name method params))
                                  :on-shutdown ,(lambda (connection)
                                                  (funcall #'mcp-on-shutdown name connection))
                                  ,@(when (equal connection-type 'sse)
@@ -420,6 +456,9 @@ in the `mcp-server-connections` hash table for future reference."
                                 ;; Notify server initialized
                                 (mcp-notify connection
                                             :notifications/initialized)
+                                ;; handle logging
+                                (when (plist-member capabilities :logging)
+                                  (mcp-async-set-log-level connection mcp-log-level))
                                 (when initial-callback
                                   (funcall initial-callback connection))
                                 ;; Get prompts
@@ -633,6 +672,32 @@ the response to extract and return text content."
          :description description
          :args
          (mcp--parse-tool-args properties required))))))
+
+(defun mcp-async-set-log-level (connection log-level)
+  "Asynchronously set the log level for the MCP server.
+
+CONNECTION is the MCP connection object.
+LOG-LEVEL is the desired log level, which must be one of:
+- 'debug: Detailed debugging information (function entry/exit points)
+- 'info: General informational messages (operation progress updates)
+- 'notice: Normal but significant events (configuration changes)
+- 'warning: Warning conditions (deprecated feature usage)
+- 'error: Error conditions (operation failures)
+- 'critical: Critical conditions (system component failures)
+- 'alert: Action must be taken immediately (data corruption detected)
+- 'emergency: System is unusable (complete system failure)
+
+On success, displays a message confirming the log level change.
+On error, displays an error message with the server's response code and message."
+  (jsonrpc-async-request connection
+                         :logging/setLevel
+                         (list :level (format "%s" log-level))
+                         :success-fn
+                         #'(lambda (res)
+                             (message "[mcp] setLevel success: %s" res))
+                         :error-fn (jsonrpc-lambda (&key code message _data)
+                                     (message "Sadly, mpc server reports %s: %s"
+                                              code message))))
 
 (defun mcp-async-ping (connection)
   "Send an asynchronous ping request to the MCP server via CONNECTION.
@@ -868,5 +933,6 @@ ERROR-CALLBACK is an optional function to call if an error occurs during the req
                                (funcall error-callback code message)
                              (message "Sadly, mpc server reports %s: %s"
                                       code message)))))
+
 (provide 'mcp)
 ;;; mcp.el ends here

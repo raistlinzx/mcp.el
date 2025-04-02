@@ -1,0 +1,3 @@
+*.elc
+mcp-pkg.el
+mcp-autoloads.el

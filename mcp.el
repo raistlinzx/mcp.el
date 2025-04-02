@@ -51,14 +51,14 @@ Available levels:
 - alert: Action must be taken immediately (data corruption detected)
 - emergency: System is unusable (complete system failure)"
   :group 'mcp
-  :type '(choice (const :tag "debug" 'debug)
-                 (const :tag "info" 'info)
-                 (const :tag "notice" 'notice)
-                 (const :tag "warning" 'warning)
-                 (const :tag "error" 'error)
-                 (const :tag "critical" 'critical)
-                 (const :tag "alert" 'alert)
-                 (const :tag "emergency" 'emergency)))
+  :type '(choice (const :tag "debug" debug)
+                 (const :tag "info" info)
+                 (const :tag "notice" notice)
+                 (const :tag "warning" warning)
+                 (const :tag "error" error)
+                 (const :tag "critical" critical)
+                 (const :tag "alert" alert)
+                 (const :tag "emergency" emergency)))
 
 (defclass mcp-process-connection (jsonrpc-process-connection)
   ((connection-type

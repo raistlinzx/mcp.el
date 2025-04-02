@@ -4,7 +4,7 @@
 
 ;; Author: lizqwer scott <lizqwerscott@gmail.com>
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.4") (jsonrpc "1.0.16"))
+;; Package-Requires: ((emacs "29.4") (jsonrpc "1.0.25"))
 ;; Keywords: ai, mcp
 ;; URL: https://github.com/lizqwerscott/mcp.el
 

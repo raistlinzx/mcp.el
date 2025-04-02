@@ -142,9 +142,8 @@
 (defun mcp--get-data (lines)
   "Extract data from event lines."
   (let ((data-line (car (seq-filter (lambda (line) (string-prefix-p "data: " line)) lines))))
-    (if data-line
-        (substring data-line (length "data: "))
-      nil)))
+    (when data-line
+      (substring data-line (length "data: ")))))
 
 (defvar mcp--in-process-filter nil
   "Non-nil if inside `mcp--process-filter'.")
@@ -181,34 +180,32 @@
                 (dolist (msg messages)
                   (pcase (mcp--connection-type conn)
                     ('sse
-                     (when (and (not (string-empty-p msg))
-                              (string-prefix-p "event: " msg))
-                       (when-let* ((event-type (substring msg (length "event: ")))
-                                   (data (mcp--get-data messages)))
-                         (cond ((string= event-type "endpoint")
-                                (setf (mcp--endpoint conn)
-                                      data))
-                               ((string= event-type "message")
-                                (progn
-                                  (setq message
-                                        (condition-case-unless-debug oops
-                                            (json-parse-string data
-                                                               :object-type 'plist
-                                                               :null-object nil
-                                                               :false-object :json-false)
-                                          (error
-                                           (jsonrpc--warn "Invalid JSON: %s %s"
-                                                          (cdr oops) data)
-                                           nil)))
-                                  (when message
-                                    (setq message
-                                          (plist-put message :jsonrpc-json
-                                                     data))
-                                    ;; Put new messages at the front of the queue,
-                                    ;; this is correct as the order is reversed
-                                    ;; before putting the timers on `timer-list'.
-                                    (push message
-                                          (process-get proc 'jsonrpc-mqueue)))))))))
+                     (when (not (string-empty-p msg))
+                       (cond
+                        ;; Handle endpoint events
+                        ((string-prefix-p "event: endpoint" msg)
+                         (when-let* ((data (mcp--get-data messages)))
+                           (setf (mcp--endpoint conn) data)))
+                        
+                        ;; Handle message events
+                        ((string-prefix-p "data: " msg)
+                         (let ((data (substring msg (length "data: "))))
+                           (setq message
+                                 (condition-case-unless-debug oops
+                                     (json-parse-string data
+                                                        :object-type 'plist
+                                                        :null-object nil
+                                                        :false-object :json-false)
+                                   (error
+                                    (jsonrpc--warn "Invalid JSON: %s %s"
+                                                   (cdr oops) data)
+                                    nil)))
+                           (when message
+                             (setq message
+                                   (plist-put message :jsonrpc-json data))
+                             ;; Put new messages at the front of the queue
+                             (push message
+                                   (process-get proc 'jsonrpc-mqueue))))))))
                     ('stdio
                      (when (not (string-empty-p msg))
                        (setq message
@@ -690,7 +687,7 @@ This function sends a request to the server to list available tools.
 The result is stored in the `mcp--tools' slot of the CONNECTION object."
   (jsonrpc-async-request connection
                          :tools/list
-                         '(:curosr nil)
+                         '(:cursor "")
                          :success-fn
                          #'(lambda (res)
                              (cl-destructuring-bind (&key tools &allow-other-keys) res
@@ -749,7 +746,7 @@ ERROR-CALLBACK is an optional function to call on error, which will receive the 
 The result is stored in the `mcp--prompts' slot of the CONNECTION object."
   (jsonrpc-async-request connection
                          :prompts/list
-                         '(:curosr nil)
+                         '(:cursor "")
                          :success-fn
                          #'(lambda (res)
                              (cl-destructuring-bind (&key prompts &allow-other-keys) res
@@ -808,7 +805,7 @@ ERROR-CALLBACK is an optional function to call if an error occurs during the req
 The result is stored in the `mcp--resources' slot of the CONNECTION object."
   (jsonrpc-async-request connection
                          :resources/list
-                         '(:curosr nil)
+                         '(:cursor "")
                          :success-fn
                          #'(lambda (res)
                              (cl-destructuring-bind (&key resources &allow-other-keys) res
@@ -860,7 +857,7 @@ CALLBACK is an optional function to call upon successful retrieval of resources.
 ERROR-CALLBACK is an optional function to call if an error occurs during the request."
   (jsonrpc-async-request connection
                          :resources/templates/list
-                         '(:curosr nil)
+                         '(:cursor "")
                          :success-fn
                          #'(lambda (res)
                              (cl-destructuring-bind (&key resourceTemplates &allow-other-keys) res

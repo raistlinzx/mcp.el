@@ -141,9 +141,8 @@
 
 (defun mcp--get-data (lines)
   "Extract data from event lines."
-  (let ((data-line (car (seq-filter (lambda (line) (string-prefix-p "data: " line)) lines))))
-    (when data-line
-      (substring data-line (length "data: ")))))
+  (when-let* ((data-line (car (seq-filter (lambda (line) (string-prefix-p "data: " line)) lines))))
+    (substring data-line (length "data: "))))
 
 (defvar mcp--in-process-filter nil
   "Non-nil if inside `mcp--process-filter'.")
@@ -186,7 +185,7 @@
                         ((string-prefix-p "event: endpoint" msg)
                          (when-let* ((data (mcp--get-data messages)))
                            (setf (mcp--endpoint conn) data)))
-                        
+
                         ;; Handle message events
                         ((string-prefix-p "data: " msg)
                          (let ((data (substring msg (length "data: "))))

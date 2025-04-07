@@ -137,7 +137,7 @@ This will generate a data structure where the function is an auto-generated sync
 **** Synchronize
 #+begin_src elisp
   (let ((connection (gethash "filesystem" mcp-server-connections)))
-    (mcp-call-tool "write_file" '(:path "filename or file path" :content "the file content")))
+    (mcp-call-tool connection "write_file" '(:path "filename or file path" :content "the file content")))
 #+end_src
 **** Asynchronous
 #+begin_src elisp

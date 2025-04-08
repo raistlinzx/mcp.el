@@ -28,18 +28,12 @@
 
 (defcustom mcp-hub-servers nil
   "Configuration for MCP servers.
-Each server configuration is a list of the form (NAME . (:command COMMAND :args ARGS)) or (NAME . (:url URL)), where:
+Each server configuration is a list of the form
+ (NAME . (:command COMMAND :args ARGS)) or (NAME . (:url URL)), where:
 - NAME is a string identifying the server.
 - COMMAND is the command to start the server.
 - ARGS is a list of arguments passed to the command.
-- URL is a string arguments to connect sse mcp server.
-
-Example:
-(setq mcp-hub-servers
-      '(;; (\"filesystem\" . (:command \"npx\" :args (\"-y\" \"@modelcontextprotocol/server-filesystem\" \"/home/lizqwer/MyProject/\")))
-        (\"fetch\" . (:command \"uvx\" :args (\"mcp-server-fetch\")))
-        (\"qdrant\" . (:url \"http://localhost:8000/sse\"))))
-"
+- URL is a string arguments to connect sse mcp server."
   :group 'mcp-hub
   :type '(list (cons string (list symbol string))))
 
@@ -48,19 +42,19 @@ Example:
          (append (list (car server))
                  (cdr server)
                  (list :initial-callback
-                       #'(lambda (connection)
+                       #'(lambda (_)
                            (mcp-hub-update))
                        :tools-callback
-                       #'(lambda (connection tools)
+                       #'(lambda (_ _)
                            (mcp-hub-update))
                        :prompts-callback
-                       #'(lambda (connection prompts)
+                       #'(lambda (_ _)
                            (mcp-hub-update))
                        :resources-callback
-                       #'(lambda (connection resources)
+                       #'(lambda (_ _)
                            (mcp-hub-update))
                        :error-callback
-                       #'(lambda (code message)
+                       #'(lambda (_ _)
                            (mcp-hub-update))))))
 
 ;;;###autoload
@@ -111,7 +105,7 @@ if it's not already running."
                 (condition-case err
                     (mcp-hub--start-server server)
                   (error
-                   (message "start %s server error: %s" err)))))
+                   (message "start %s server error: %s" (car server) err)))))
           mcp-hub-servers))
 
 ;;;###autoload
@@ -120,11 +114,10 @@ if it's not already running."
 This function will attempt to stop each server listed in `mcp-hub-servers'
 that is currently running."
   (interactive)
-  (mapcar #'(lambda (server)
-              (when (gethash (car server)
-                             mcp-server-connections)
-                (mcp-stop-server (car server))))
-          mcp-hub-servers)
+  (dolist (server mcp-hub-servers)
+    (when (gethash (car server)
+                   mcp-server-connections)
+      (mcp-stop-server (car server))))
   (mcp-hub-update))
 
 ;;;###autoload
@@ -140,7 +133,7 @@ It's useful for applying configuration changes or recovering from errors."
   "Retrieve status information for all configured servers.
 Returns a list of server statuses, where each status is a plist containing:
 - :name - The server's name
-- :status - Either 'connected or 'stop
+- :status - Either `connected' or `stop'
 - :tools - Available tools (if connected)
 - :resources - Available resources (if connected)
 - :prompts - Available prompts (if connected)"
@@ -156,7 +149,7 @@ Returns a list of server statuses, where each status is a plist containing:
                   (list :name name :status 'stop))))
           mcp-hub-servers))
 
-(defun mcp-hub-update (&optional arg silent)
+(defun mcp-hub-update ()
   "Update the MCP Hub display with current server status.
 If called interactively, ARG is the prefix argument.
 When SILENT is non-nil, suppress any status messages.
@@ -213,8 +206,8 @@ including connection status, available tools, resources, and prompts."
 (defun mcp-hub-start-server ()
   "Start the currently selected MCP server.
 This function starts the server that is currently highlighted in the *Mcp-Hub*
-buffer. It sets up callbacks for connection status, tools, prompts, and resources
-updates, and refreshes the hub view after starting the server."
+buffer. It sets up callbacks for connection status, tools, prompts, and
+resources updates, and refreshes the hub view after starting the server."
   (interactive)
   (when-let* ((server (tabulated-list-get-entry))
               (name (elt server 0))

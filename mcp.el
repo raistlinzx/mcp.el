@@ -35,7 +35,7 @@
   "MCP support version.")
 
 (defcustom mcp-server-start-time 60
-  "The Seconds of mcp server start time"
+  "The Seconds of mcp server start time."
   :group 'mcp
   :type 'integer)
 
@@ -100,8 +100,9 @@ Available levels:
   ()
   :documentation "A stdio MCP connection over an Emacs process.")
 
-(cl-defmethod initialize-instance :after ((mcp mcp-process-connection) slots)
-  (cl-destructuring-bind (&key ((:process proc)) name &allow-other-keys) slots
+(cl-defmethod initialize-instance :after ((_ mcp-process-connection) slots)
+  "Init mcp process connection."
+  (cl-destructuring-bind (&key ((:process proc)) &allow-other-keys) slots
     (set-process-filter proc #'mcp--process-filter)))
 
 (cl-defmethod jsonrpc-connection-send ((connection mcp-process-connection)
@@ -113,7 +114,24 @@ Available levels:
                                        (_result nil result-supplied-p)
                                        error
                                        _partial)
-  "Send MESSAGE, a JSON object with no header to CONNECTION."
+  "Send JSON-RPC message to CONNECTION.
+CONNECTION is an MCP process connection instance. ARGS is a plist
+containing the message components:
+
+METHOD - Method name (string, symbol or keyword)
+PARAMS - Parameters for the method (optional)
+ID     - Request ID (optional)
+RESULT - Response result (for replies)
+error   - Error object (for error replies)
+partial - Partial response flag (optional)
+
+For requests, both :method and :id should be provided.
+For notifications, only :method is required.
+For replies, either :_result or :error should be provided.
+
+The message is sent differently based on connection type:
+- SSE connections use HTTP POST requests
+- Stdio connections write directly to the process"
   (when method
     ;; sanitize method into a string
     (setq args
@@ -140,13 +158,13 @@ Available levels:
                           (mcp--port connection)
                           (mcp--endpoint connection))))
          (url-retrieve url
-                       #'(lambda (status)
+                       #'(lambda (_)
                            (when (buffer-live-p (current-buffer))
                              (goto-char (point-min))
-                             (when (search-forward "\n\n" nil t)
-                               (let* ((headers (buffer-substring (point-min) (point)))
-                                      (body (buffer-substring (point) (point-max)))
-                                      (response-code (string-match "HTTP/.* \\([0-9]+\\)" headers)))))
+                             ;; (when (search-forward "\n\n" nil t)
+                             ;;   (let* ((headers (buffer-substring (point-min) (point)))
+                             ;;          (body (buffer-substring (point) (point-max)))
+                             ;;          (response-code (string-match "HTTP/.* \\([0-9]+\\)" headers)))))
                              (kill-buffer))))))
       ('stdio
        (process-send-string
@@ -161,7 +179,8 @@ Available levels:
      :foreign-message converted)))
 
 (defun mcp--get-data (lines)
-  "Extract data from event lines."
+  "Extract JSON data from SSE event lines.
+LINES is a list of strings from an SSE event stream."
   (when-let* ((data-line (car (seq-filter (lambda (line) (string-prefix-p "data: " line)) lines))))
     (substring data-line (length "data: "))))
 
@@ -194,8 +213,7 @@ Available levels:
         ;; Loop (more than one message might have arrived)
         ;;
         (unwind-protect
-            (let ((message nil)
-                  (done nil))
+            (let ((message nil))
               (let ((messages (split-string string "\n")))
                 (dolist (msg messages)
                   (pcase (mcp--connection-type conn)
@@ -275,6 +293,12 @@ Available levels:
                 (timer-activate timer))))))))
 
 (defun mcp--sse-connect (process host port path)
+  "Establish SSE connection to server.
+PROCESS is the network process object. HOST and PORT specify the
+server address. PATH is the endpoint path for SSE connection.
+Sends HTTP GET request with SSE headers to initiate the event
+stream connection. Used internally by MCP for SSE-based JSON-RPC
+communication."
   (process-send-string process
                        (concat
                         (format "GET %s HTTP/1.1\r\n"
@@ -287,7 +311,12 @@ Available levels:
                         "Connection: keep-alive\r\n\r\n")))
 
 (cl-defun mcp-notify (connection method &optional (params nil))
-  "Notify CONNECTION of something, don't expect a reply."
+  "Send notification to CONNECTION without expecting response.
+METHOD is the notification name (string or symbol). PARAMS is an
+optional plist of parameters.
+This is a thin wrapper around =jsonrpc-connection-send' that
+omits the :id parameter to indicate it's a notification rather
+than a request."
   (apply #'jsonrpc-connection-send
          `(,connection
            :method ,method
@@ -298,11 +327,19 @@ Available levels:
   "Mcp server process.")
 
 (defun mcp-request-dispatcher (name method params)
-  "Handle mcp server method."
+  "Default handler for MCP server requests.
+NAME identifies the server connection. METHOD is the requested
+method name. PARAMS contains the method parameters.
+
+This basic implementation just logs the request. Applications
+should override this to implement actual request handling."
   (message "%s Received request: method=%s, params=%s" name method params))
 
 (defun mcp-notification-dispatcher (connection name method params)
-  "Handle mcp server notification."
+  "Handle notifications from MCP server.
+CONNECTION is the JSON-RPC connection object. NAME identifies the
+server. METHOD is the notification name. PARAMS contains the
+notification data."
   (pcase method
     ('notifications/message
      (cond ((or (plist-member (mcp--capabilities connection) :logging)
@@ -320,11 +357,21 @@ Available levels:
     (_
      (message "%s Received notification: method=%s, params=%s" name method params))))
 
-(defun mcp-on-shutdown (name connection)
-  "When mcp server shutdown."
+(defun mcp-on-shutdown (name)
+  "When NAME mcp server shutdown."
   (message "%s connection shutdown" name))
 
 (defun mcp--parse-http-url (url)
+  "Parse HTTP/HTTPS URL into connection components.
+URL should be a string in format http(s)://host[:port][/path].
+
+Returns a plist with connection parameters:
+:tls   - Boolean indicating HTTPS (t) or HTTP (nil)
+:host  - Server hostname (string)
+:port  - Port number (integer, defaults to 80/443)
+:path  - URL path component (string)
+
+Returns nil if URL is invalid or not HTTP/HTTPS."
   (when-let* ((url (url-generic-parse-url url))
               (type (url-type url))
               (host (url-host url))
@@ -343,19 +390,27 @@ Available levels:
               :path filename)))))
 
 ;;;###autoload
-(cl-defun mcp-connect-server (name &key command args url env initial-callback tools-callback prompts-callback resources-callback error-callback)
-  "Connect to an MCP server with the given NAME, COMMAND, and ARGS.
+(cl-defun mcp-connect-server (name &key command args url env initial-callback
+                                  tools-callback prompts-callback
+                                  resources-callback error-callback)
+  "Connect to an MCP server with NAME, COMMAND, and ARGS or URL.
 
 NAME is a string representing the name of the server.
-COMMAND is a string representing the command to start the server in stdio mcp server.
+COMMAND is a string representing the command to start the server
+in stdio mcp server.
 ARGS is a list of arguments to pass to the COMMAND.
 URL is a string arguments to connect sse mcp server.
 ENV is a plist argument to set mcp server env.
 
-INITIAL-CALLBACK is a function called when the server completes the connection.
-TOOLS-CALLBACK is a function called to handle the list of tools provided by the server.
-PROMPTS-CALLBACK is a function called to handle the list of prompts provided by the server.
-RESOURCES-CALLBACK is a function called to handle the list of resources provided by the server.
+INITIAL-CALLBACK is a function called when the server completes
+the connection.
+TOOLS-CALLBACK is a function called to handle the list of tools
+provided by the server.
+PROMPTS-CALLBACK is a function called to handle the list of prompts
+provided by the server.
+RESOURCES-CALLBACK is a function called to handle the list of
+resources provided by the server.
+ERROR-CALLBACK is a function to call on error.
 
 This function creates a new process for the server, initializes a connection,
 and sends an initialization message to the server. The connection is stored
@@ -390,9 +445,8 @@ in the `mcp-server-connections` hash table for future reference."
                                                (seq-partition env 2)))
                                   (process-environment (copy-sequence process-environment)))
                               (when env
-                                (mapcar (lambda (elem)
-                                          (setenv (car elem) (cadr elem)))
-                                        env))
+                                (dolist (elem env)
+                                  (setenv (car elem) (cadr elem))))
                               (make-process
                                :name name
                                :command (append (list command)
@@ -418,12 +472,12 @@ in the `mcp-server-connections` hash table for future reference."
                                  :connection-type ,connection-type
                                  :name ,name
                                  :process ,process
-                                 :request-dispatcher ,(lambda (connection method params)
+                                 :request-dispatcher ,(lambda (_ method params)
                                                         (funcall #'mcp-request-dispatcher name method params))
                                  :notification-dispatcher ,(lambda (connection method params)
                                                              (funcall #'mcp-notification-dispatcher connection name method params))
-                                 :on-shutdown ,(lambda (connection)
-                                                 (funcall #'mcp-on-shutdown name connection))
+                                 :on-shutdown ,(lambda (_)
+                                                 (funcall #'mcp-on-shutdown name))
                                  ,@(when (equal connection-type 'sse)
                                      (list :host (plist-get server-config :host)
                                            :port (plist-get server-config :port))))))
@@ -494,8 +548,8 @@ in the `mcp-server-connections` hash table for future reference."
 (defun mcp-stop-server (name)
   "Stop the MCP server with the given NAME.
 If the server is running, it will be shutdown and its connection will be removed
-from `mcp-server-connections'. If no server with the given NAME is found, a message
-will be displayed indicating that the server is not running."
+from `mcp-server-connections'. If no server with the given NAME is found,
+a message will be displayed indicating that the server is not running."
   (if-let* ((connection (gethash name mcp-server-connections)))
       (progn
         (jsonrpc-shutdown connection)
@@ -507,10 +561,10 @@ will be displayed indicating that the server is not running."
 
 INPUT-SCHEMA is a plist representing the JSON schema to parse.
 
-The function processes the schema recursively, handling objects, arrays, and other
-primitive types. For objects, it extracts properties and required fields. For
-arrays, it processes the item schema. Other types are preserved with optional
-descriptions, enums, or default values.
+The function processes the schema recursively, handling objects, arrays, and
+other primitive types. For objects, it extracts properties and required fields.
+For arrays, it processes the item schema. Other types are preserved with
+optional descriptions, enums, or default values.
 
 Returns a plist representing the parsed schema, or nil if the input is invalid."
   (when-let* ((type (intern (plist-get input-schema :type))))
@@ -622,7 +676,7 @@ Returns a plist of argument names and values ready for tool invocation."
 
 ;;;###autoload
 (defun mcp-make-text-tool (name tool-name &optional asyncp)
-  "Create a `gptel' tool with the given NAME, TOOL-NAME, and ASYNCP
+  "Create a `gptel' tool with the given NAME, TOOL-NAME, and ASYNCP.
 
 NAME is the name of the server connection.
 TOOL-NAME is the name of the tool to be created.
@@ -678,14 +732,14 @@ the response to extract and return text content."
 
 CONNECTION is the MCP connection object.
 LOG-LEVEL is the desired log level, which must be one of:
-- 'debug: Detailed debugging information (function entry/exit points)
-- 'info: General informational messages (operation progress updates)
-- 'notice: Normal but significant events (configuration changes)
-- 'warning: Warning conditions (deprecated feature usage)
-- 'error: Error conditions (operation failures)
-- 'critical: Critical conditions (system component failures)
-- 'alert: Action must be taken immediately (data corruption detected)
-- 'emergency: System is unusable (complete system failure)
+- `debug': Detailed debugging information (function entry/exit points)
+- `info': General informational messages (operation progress updates)
+- `notice': Normal but significant events (configuration changes)
+- `warning': Warning conditions (deprecated feature usage)
+- `error': Error conditions (operation failures)
+- `critical': Critical conditions (system component failures)
+- `alert': Action must be taken immediately (data corruption detected)
+- `emergency': System is unusable (complete system failure)
 
 On success, displays a message confirming the log level change.
 On error, displays an error message with the server's response code and message."
@@ -704,7 +758,7 @@ On error, displays an error message with the server's response code and message.
 
 The function uses `jsonrpc-async-request' to send a ping request.
 On success, it displays a message with the response.
-On error, it displays an error message with the code and message from the server."
+On error, it displays an error message with the code from the server."
   (jsonrpc-async-request connection
                          :ping
                          nil
@@ -803,9 +857,10 @@ ERROR-CALLBACK is a function to call on error."
 (defun mcp-async-list-prompts (connection &optional callback error-callback)
   "Get list of prompts from the MCP server using the provided CONNECTION.
 
-CONNECTION is the MCP connection object.
-CALLBACK is an optional function to call on success, which will receive the CONNECTION and the list of prompts.
-ERROR-CALLBACK is an optional function to call on error, which will receive the error code and message.
+CONNECTION is the MCP connection object. CALLBACK is an optional function to
+call on success,which will receive the CONNECTION and the list of prompts.
+ERROR-CALLBACK is an optional function to call on error, which will receive the
+error code and message.
 
 The result is stored in the `mcp--prompts' slot of the CONNECTION object."
   (jsonrpc-async-request connection
@@ -862,9 +917,9 @@ ERROR-CALLBACK is a function to call on error."
 (defun mcp-async-list-resources (connection &optional callback error-callback)
   "Get list of resources from the MCP server using the provided CONNECTION.
 
-CONNECTION is the MCP connection object.
-CALLBACK is an optional function to call upon successful retrieval of resources.
-ERROR-CALLBACK is an optional function to call if an error occurs during the request.
+CONNECTION is the MCP connection object. CALLBACK is an optional function to
+call upon successful retrieval of resources. ERROR-CALLBACK is an optional
+function to call if an error occurs during the request.
 
 The result is stored in the `mcp--resources' slot of the CONNECTION object."
   (jsonrpc-async-request connection
@@ -914,11 +969,11 @@ succeeds, or ERROR-CALLBACK if it fails."
                            (funcall error-callback code message))))
 
 (defun mcp-async-list-resource-templates (connection &optional callback error-callback)
-  "Get list of resource templates from the MCP server using the provided CONNECTION.
+  "Get list of resource templates from the MCP server using the CONNECTION.
 
-CONNECTION is the MCP connection object.
-CALLBACK is an optional function to call upon successful retrieval of resources.
-ERROR-CALLBACK is an optional function to call if an error occurs during the request."
+CONNECTION is the MCP connection object. CALLBACK is an optional function to
+call upon successful retrieval of resources. ERROR-CALLBACK is an optional
+function to call if an error occurs during the request."
   (jsonrpc-async-request connection
                          :resources/templates/list
                          '(:cursor "")

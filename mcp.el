@@ -570,7 +570,7 @@ Returns a plist representing the parsed schema, or nil if the input is invalid."
   (cond
    ;; Handle anyOf schemas
    ((plist-member input-schema :anyOf)
-    `(:type "any"
+    `(:type any
       :description ,(plist-get input-schema :description)
       :anyOf ,(mapcar #'mcp--parse-json-schema (plist-get input-schema :anyOf))))
 

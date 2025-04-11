@@ -614,8 +614,8 @@ Returns a plist representing the parsed schema, or nil if the input is invalid."
                      (plist-get input-schema :defalut))))))))
 
    ;; Return a default for unrecognized schemas
-   (t `(:type "any"
-        :description ,(or (plist-get input-schema :description) "Unknown schema type")))))
+   (t `(:type any
+              :description ,(or (plist-get input-schema :description) "Unknown schema type")))))
 
 (defun mcp--parse-tool-args (properties required)
   "Parse tool arguments from PROPERTIES and REQUIRED lists.

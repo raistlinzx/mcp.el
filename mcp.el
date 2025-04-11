@@ -570,9 +570,13 @@ Returns a plist representing the parsed schema, or nil if the input is invalid."
   (cond
    ;; Handle anyOf schemas
    ((plist-member input-schema :anyOf)
-    `(:type any
+    `(
+      :type any
       :description ,(plist-get input-schema :description)
-      :anyOf ,(mapcar #'mcp--parse-json-schema (plist-get input-schema :anyOf))))
+      :anyOf ,(mapcar #'mcp--parse-json-schema (plist-get input-schema :anyOf))
+      ,@(when (plist-member input-schema :default)
+          (list :default
+                (plist-get input-schema :default)))))
 
    ;; Handle regular type-based schemas
    ((plist-get input-schema :type)
@@ -588,7 +592,8 @@ Returns a plist representing the parsed schema, or nil if the input is invalid."
                                    (seq-partition properties 2))
             :required required)))
         (_
-         `(:type ,type
+         `(
+           :type ,type
            :description ,(if (plist-member input-schema :description)
                              (plist-get input-schema :description)
                            "")
@@ -610,8 +615,8 @@ Returns a plist representing the parsed schema, or nil if the input is invalid."
                (list :enum
                      (plist-get input-schema :enum)))
            ,@(when (plist-member input-schema :default)
-               (list :defalut
-                     (plist-get input-schema :defalut))))))))
+               (list :default
+                     (plist-get input-schema :default))))))))
 
    ;; Return a default for unrecognized schemas
    (t `(:type any

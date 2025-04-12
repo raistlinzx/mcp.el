@@ -223,7 +223,7 @@ LINES is a list of strings from an SSE event stream."
                         ;; Handle endpoint events
                         ((string-prefix-p "event: endpoint" msg)
                          (when-let* ((data (mcp--get-data messages)))
-                           (setf (mcp--endpoint conn) data)))
+			    (setf (mcp--endpoint conn) (string-trim data))))
 
                         ;; Handle message events
                         ((string-prefix-p "data: " msg)

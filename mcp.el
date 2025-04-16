@@ -187,73 +187,70 @@ Available levels:
              (queue (or (process-get proc 'jsonrpc-mqueue) nil))
              (buf (or (process-get proc 'jsonrpc-pending) ""))
              (data (concat buf string))
-             (messages '())
-             (type (mcp--connection-type conn)))
+             (type (mcp--connection-type conn))
+             (parsed-messages nil)
+             (lines (split-string data "\n"))
+             (index 0)
+             (endpoint-waitp nil))
+        (dolist (line lines)
+          (message "lines handle %s" line)
+          (pcase type
+            ('sse
+             (cond
+              ((string-prefix-p "event: endpoint" line)
+               (setq endpoint-waitp t))
+              ((string-prefix-p "data: " line)
+               (let ((json-str (string-trim (substring line 6))))
+                 (unless (string-empty-p json-str)
+                   (if endpoint-waitp
+                       (setf (mcp--endpoint conn) json-str)
+                     (push (cons index json-str) parsed-messages)
+                     (cl-incf index)))))))
+            ('stdio
+             (let ((json-str (string-trim line)))
+               (unless (string-empty-p json-str)
+                 (push (cons index json-str) parsed-messages)
+                 (cl-incf index))))))
+        (setq parsed-messages (nreverse parsed-messages))
 
-        ;; Define extraction function
-        (cl-labels
-            ((extract-messages (data)
-               (let ((msgs '())
-                     (rest "")
-                     (lines (split-string data "\n")))
-                 (dolist (line lines)
-                   (cond
-                    ;; SSE format
-                    ((and (eq type 'sse) (string-prefix-p "data: " line))
-                     (let ((json-str (string-trim (substring line 6))))
-                       (when (not (string-empty-p json-str))
-                         (push (cons t json-str) msgs))))
-                    ;; STDIO format
-                    ((eq type 'stdio)
-                     (let ((json-str (string-trim line)))
-                       (unless (string-empty-p json-str)
-                         (push (cons t json-str) msgs)))))
-                   ;; NOTE: other formats are not supported
-                   )
-                 (cons (nreverse msgs) rest)))) ;; ← return as cons pair
+        ;; Add messages to MQUEUE
+        (dolist (msg parsed-messages)
+          (pcase-let ((`(,index . ,json-str) msg))
+            (let ((json nil))
+              (condition-case-unless-debug err
+                  (setq json (json-parse-string json-str
+                                                :object-type 'plist
+                                                :null-object nil
+                                                :false-object :json-false))
+                (error
+                 ;; If the last data parsing fails, it may be due to incomplete data transmission.
+                 (when (not (= index (- (length parsed-messages) 1)))
+                   (jsonrpc--warn "Invalid JSON: %s %s"
+                                  (cdr err) json-str))
+                 (message "parse error")
+                 ;; Save remaining data to pending for next processing
+                 (process-put proc 'jsonrpc-pending json-str)))
+              (when json
+                (setq json (plist-put json :jsonrpc-json json-str))
+                (push json queue)))))
 
-          ;; Actually extract: messages + remaining buffer
-          (let* ((parsed (extract-messages data))
-                 (parsed-messages (car parsed))
-                 (rest (cdr parsed)))
+        ;; Save updated queue
+        (process-put proc 'jsonrpc-mqueue queue)
 
-            ;; Save remaining data to pending for next processing
-            (process-put proc 'jsonrpc-pending rest)
+        ;; Dispatch messages in timer
+        (cl-loop with time = (current-time)
+                 for msg = (pop queue) while msg
+                 do (let ((timer (timer-create)))
+                      (timer-set-time timer time)
+                      (timer-set-function timer
+                                          (lambda (conn msg)
+                                            (with-temp-buffer
+                                              (jsonrpc-connection-receive conn msg)))
+                                          (list conn msg))
+                      (timer-activate timer)))
 
-            ;; Add messages to MQUEUE
-            (dolist (msg parsed-messages)
-              (pcase-let ((`(,complete . ,json-str) msg))
-                (when complete
-                  (let ((json nil))
-                    (condition-case-unless-debug err
-                        (setq json (json-parse-string json-str
-                                                      :object-type 'plist
-                                                      :null-object nil
-                                                      :false-object :json-false))
-                      (error
-                       (jsonrpc--warn "Invalid JSON: %s %s"
-                                      (cdr err) json-str)))
-                    (when json
-                      (setq json (plist-put json :jsonrpc-json json-str))
-                      (push json queue))))))
-
-            ;; Save updated queue
-            (process-put proc 'jsonrpc-mqueue queue)
-
-            ;; Dispatch messages in timer
-            (cl-loop with time = (current-time)
-                     for msg = (pop queue) while msg
-                     do (let ((timer (timer-create)))
-                          (timer-set-time timer time)
-                          (timer-set-function timer
-                                              (lambda (conn msg)
-                                                (with-temp-buffer
-                                                  (jsonrpc-connection-receive conn msg)))
-                                              (list conn msg))
-                          (timer-activate timer)))
-
-            ;; Save final queue (might have been consumed by timer pop)
-            (process-put proc 'jsonrpc-mqueue queue)))))))
+        ;; Save final queue (might have been consumed by timer pop)
+        (process-put proc 'jsonrpc-mqueue queue)))))
 
 (defun mcp--sse-connect (process host port path)
   (process-send-string process

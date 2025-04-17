@@ -264,10 +264,11 @@ The message is sent differently based on connection type:
         ;; Save final queue (might have been consumed by timer pop)
         (process-put proc 'jsonrpc-mqueue queue)))))
 
-(defun mcp--sse-connect (process host port path)
+(defun mcp--sse-connect (process host port path tls)
   "Establish SSE connection to server.
 PROCESS is the network process object. HOST and PORT specify the
 server address. PATH is the endpoint path for SSE connection.
+TLS is non-nil if the connection should use HTTPS.
 Sends HTTP GET request with SSE headers to initiate the event
 stream connection. Used internally by MCP for SSE-based JSON-RPC
 communication."
@@ -275,9 +276,15 @@ communication."
                        (concat
                         (format "GET %s HTTP/1.1\r\n"
                                 path)
-                        (format "Host: %s:%s\r\n"
-                                host
-                                port)
+                        (format "Host: %s\r\n"
+                                (if (or (and (numberp port)
+                                             (or (and (not tls) (= port 80))
+                                                 (and tls (= port 443))))
+                                        (and (stringp port)
+                                             (or (and (not tls) (string= port "80"))
+                                                 (and tls (string= port "443")))))
+                                    host
+                                  (format "%s:%s" host port)))
                         "Accept: text/event-stream\r\n"
                         "Cache-Control: no-cache\r\n"
                         "Connection: keep-alive\r\n\r\n")))
@@ -434,7 +441,8 @@ in the `mcp-server-connections` hash table for future reference."
         (mcp--sse-connect process
                           (plist-get server-config :host)
                           (plist-get server-config :port)
-                          (plist-get server-config :path)))
+                          (plist-get server-config :path)
+                          (plist-get server-config :tls)))
       (let ((connection (apply #'make-instance
                                `(,(pcase connection-type
                                     ('sse

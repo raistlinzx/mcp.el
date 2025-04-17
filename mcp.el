@@ -160,11 +160,6 @@ Available levels:
      :message args
      :foreign-message converted)))
 
-(defun mcp--get-data (lines)
-  "Extract data from event lines."
-  (when-let* ((data-line (car (seq-filter (lambda (line) (string-prefix-p "data: " line)) lines))))
-    (substring data-line (length "data: "))))
-
 (defvar mcp--in-process-filter nil
   "Non-nil if inside `mcp--process-filter'.")
 
@@ -193,7 +188,6 @@ Available levels:
              (index 0)
              (endpoint-waitp nil))
         (dolist (line lines)
-          (message "lines handle %s" line)
           (pcase type
             ('sse
              (cond

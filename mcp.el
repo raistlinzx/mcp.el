@@ -556,72 +556,6 @@ a message will be displayed indicating that the server is not running."
         (setf (gethash name mcp-server-connections) nil))
     (message "mcp %s server not started" name)))
 
-(defun mcp--parse-json-schema (input-schema)
-  "Parse a JSON schema into a structured Elisp representation.
-
-INPUT-SCHEMA is a plist representing the JSON schema to parse.
-
-The function processes the schema recursively, handling objects, arrays, and
-other primitive types. For objects, it extracts properties and required fields.
-For arrays, it processes the item schema. Other types are preserved with
-optional descriptions, enums, or default values.
-
-Returns a plist representing the parsed schema, or nil if the input is invalid."
-  (cond
-   ;; Handle anyOf schemas
-   ((plist-member input-schema :anyOf)
-    `(
-      :type any
-      :description ,(plist-get input-schema :description)
-      :anyOf ,(mapcar #'mcp--parse-json-schema (plist-get input-schema :anyOf))
-      ,@(when (plist-member input-schema :default)
-          (list :default
-                (plist-get input-schema :default)))))
-
-   ;; Handle regular type-based schemas
-   ((plist-get input-schema :type)
-    (let ((type (intern (plist-get input-schema :type))))
-      (pcase type
-        ('object
-         (cl-destructuring-bind (&key properties required &allow-other-keys) input-schema
-           (list
-            :type type
-            :properties (cl-mapcar #'(lambda (arg-value)
-                                       (pcase-let* ((`(,key ,value) arg-value))
-                                         (list key (mcp--parse-json-schema value))))
-                                   (seq-partition properties 2))
-            :required required)))
-        (_
-         `(
-           :type ,type
-           :description ,(if (plist-member input-schema :description)
-                             (plist-get input-schema :description)
-                           "")
-           ,@(when (equal type 'array)
-               (list :items
-                     (let ((items (plist-get input-schema :items)))
-                       `(,@(list :type (intern (plist-get items :type)))
-                         ,@(when (plist-member items :properties)
-                             (list :properties
-                                   (apply #'append
-                                          (mapcar #'(lambda (item)
-                                                      (pcase-let* ((`(,key ,value) item))
-                                                        (list key (mcp--parse-json-schema value))))
-                                                  (seq-partition (plist-get items :properties) 2)))))
-                         ,@(when (plist-member items :required)
-                             (list :required
-                                   (plist-get items :required)))))))
-           ,@(when (plist-member input-schema :enum)
-               (list :enum
-                     (plist-get input-schema :enum)))
-           ,@(when (plist-member input-schema :default)
-               (list :default
-                     (plist-get input-schema :default))))))))
-
-   ;; Return a default for unrecognized schemas
-   (t `(:type any
-              :description ,(or (plist-get input-schema :description) "Unknown schema type")))))
-
 (defun mcp--parse-tool-args (properties required)
   "Parse tool arguments from PROPERTIES and REQUIRED lists.
 
@@ -637,12 +571,16 @@ Returns a list of parsed argument plists."
                         (length required))))
     (cl-mapcar #'(lambda (arg-value required-name)
                    (pcase-let* ((`(,key ,value) arg-value))
-                     (append (list :name
-                                   (substring (symbol-name key)
-                                              1))
-                             (mcp--parse-json-schema value)
-                             (unless required-name
-                               (list :optional t)))))
+                     `(
+                       :name ,(substring (symbol-name key)
+                                         1)
+                       ,@(if (plist-member value :type)
+                             (plist-put value
+                                        :type
+                                        (intern (plist-get value :type)))
+                           value)
+                       ,@(unless required-name
+                           (list :optional t)))))
                (seq-partition properties 2)
                (append required
                        (when (> need-length 0)

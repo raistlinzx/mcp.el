@@ -52,13 +52,13 @@ Available levels:
 - emergency: System is unusable (complete system failure)"
   :group 'mcp
   :type '(choice (const :tag "debug" debug)
-                 (const :tag "info" info)
-                 (const :tag "notice" notice)
-                 (const :tag "warning" warning)
-                 (const :tag "error" error)
-                 (const :tag "critical" critical)
-                 (const :tag "alert" alert)
-                 (const :tag "emergency" emergency)))
+          (const :tag "info" info)
+          (const :tag "notice" notice)
+          (const :tag "warning" warning)
+          (const :tag "error" error)
+          (const :tag "critical" critical)
+          (const :tag "alert" alert)
+          (const :tag "emergency" emergency)))
 
 (defclass mcp-process-connection (jsonrpc-process-connection)
   ((connection-type
@@ -315,8 +315,8 @@ notification data."
   (pcase method
     ('notifications/message
      (cond ((or (plist-member (mcp--capabilities connection) :logging)
-               (and (plist-member params :level)
-                  (plist-member params :data)))
+                (and (plist-member params :level)
+                     (plist-member params :data)))
             (cl-destructuring-bind (&key level data &allow-other-keys) params
               (let ((logger (plist-get params :logger)))
                 (message "[mcp][%s][%s]%s: %s"
@@ -349,7 +349,7 @@ Returns nil if URL is invalid or not HTTP/HTTPS."
               (host (url-host url))
               (filename (url-filename url)))
     (when (or (string= type "http")
-             (string= type "https"))
+              (string= type "https"))
       (let ((port (url-port url))
             (tls (string= "https" type)))
         (list :tls tls
@@ -363,8 +363,8 @@ Returns nil if URL is invalid or not HTTP/HTTPS."
 
 ;;;###autoload
 (cl-defun mcp-connect-server (name &key command args url env initial-callback
-                                  tools-callback prompts-callback
-                                  resources-callback error-callback)
+                                   tools-callback prompts-callback
+                                   resources-callback error-callback)
   "Connect to an MCP server with NAME, COMMAND, and ARGS or URL.
 
 NAME is a string representing the name of the server.
@@ -468,8 +468,8 @@ in the `mcp-server-connections` hash table for future reference."
                #'(lambda ()
                    (cl-incf initial-use-time)
                    (when (or (equal connection-type 'stdio)
-                            (and (equal connection-type 'sse)
-                               (mcp--endpoint connection)))
+                             (and (equal connection-type 'sse)
+                                  (mcp--endpoint connection)))
                      (cancel-timer initial-timer)
                      (mcp-async-initialize-message
                       connection
@@ -528,55 +528,6 @@ a message will be displayed indicating that the server is not running."
         (setf (gethash name mcp-server-connections) nil))
     (message "mcp %s server not started" name)))
 
-(defun mcp--parse-json-schema (input-schema)
-  "Parse a JSON schema into a structured Elisp representation.
-
-INPUT-SCHEMA is a plist representing the JSON schema to parse.
-
-The function processes the schema recursively, handling objects, arrays, and
-other primitive types. For objects, it extracts properties and required fields.
-For arrays, it processes the item schema. Other types are preserved with
-optional descriptions, enums, or default values.
-
-Returns a plist representing the parsed schema, or nil if the input is invalid."
-  (when-let* ((type (intern (plist-get input-schema :type))))
-    (pcase type
-      ('object
-       (cl-destructuring-bind (&key properties required &allow-other-keys) input-schema
-         (list
-          :type type
-          :properties (cl-mapcar #'(lambda (arg-value)
-                                     (pcase-let* ((`(,key ,value) arg-value))
-                                       (list key (mcp--parse-json-schema value))))
-                                 (seq-partition properties 2))
-          :required required)))
-      (_
-       `(
-         :type ,type
-         :description ,(if (plist-member input-schema :description)
-                           (plist-get input-schema :description)
-                         "")
-         ,@(when (equal type 'array)
-             (list :items
-                   (let ((items (plist-get input-schema :items)))
-                     `(,@(list :type (intern (plist-get items :type)))
-                       ,@(when (plist-member items :properties)
-                           (list :properties
-                                 (apply #'append
-                                        (mapcar #'(lambda (item)
-                                                    (pcase-let* ((`(,key ,value) item))
-                                                      (list key (mcp--parse-json-schema value))))
-                                                (seq-partition (plist-get items :properties) 2)))))
-                       ,@(when (plist-member items :required)
-                           (list :required
-                                 (plist-get items :required)))))))
-         ,@(when (plist-member input-schema :enum)
-             (list :enum
-                   (plist-get input-schema :enum)))
-         ,@(when (plist-member input-schema :default)
-             (list :defalut
-                   (plist-get input-schema :defalut))))))))
-
 (defun mcp--parse-tool-args (properties required)
   "Parse tool arguments from PROPERTIES and REQUIRED lists.
 
@@ -592,12 +543,16 @@ Returns a list of parsed argument plists."
                         (length required))))
     (cl-mapcar #'(lambda (arg-value required-name)
                    (pcase-let* ((`(,key ,value) arg-value))
-                     (append (list :name
-                                   (substring (symbol-name key)
-                                              1))
-                             (mcp--parse-json-schema value)
-                             (unless required-name
-                               (list :optional t)))))
+                     `(
+                       :name ,(substring (symbol-name key)
+                                         1)
+                       ,@(if (plist-member value :type)
+                             (plist-put value
+                                        :type
+                                        (intern (plist-get value :type)))
+                           value)
+                       ,@(unless required-name
+                           (list :optional t)))))
                (seq-partition properties 2)
                (append required
                        (when (> need-length 0)
@@ -697,7 +652,7 @@ the response to extract and return text content."
          :async asyncp
          :description description
          :args
-         (mcp--parse-tool-args properties required))))))
+         (mcp--parse-tool-args properties (or required '())))))))
 
 (defun mcp-async-set-log-level (connection log-level)
   "Asynchronously set the log level for the MCP server.

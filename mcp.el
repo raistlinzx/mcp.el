@@ -543,16 +543,10 @@ Returns a list of parsed argument plists."
                         (length required))))
     (cl-mapcar #'(lambda (arg-value required-name)
                    (pcase-let* ((`(,key ,value) arg-value))
-                     `(
-                       :name ,(substring (symbol-name key)
-                                         1)
-                       ,@(if (plist-member value :type)
-                             (plist-put value
-                                        :type
-                                        (intern (plist-get value :type)))
-                           value)
-                       ,@(unless required-name
-                           (list :optional t)))))
+                     `( :name ,(substring (symbol-name key) 1)
+                        ,@value
+                        ,@(unless required-name
+                            `(:optional t)))))
                (seq-partition properties 2)
                (append required
                        (when (> need-length 0)

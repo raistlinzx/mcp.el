@@ -239,9 +239,12 @@ The message is sent differently based on connection type:
                  (when (not (= index (- (length parsed-messages) 1)))
                    (jsonrpc--warn "Invalid JSON: %s %s"
                                   (cdr err) json-str))
-                 (message "parse error")
-                 ;; Save remaining data to pending for next processing
-                 (process-put proc 'jsonrpc-pending json-str)))
+                 (if (string-prefix-p "{" json-str)
+                     ;; Save remaining data to pending for next processing
+                     (process-put proc 'jsonrpc-pending json-str)
+                   ;; When the data is obviously not a partial json message, the
+                   ;; server might be sending bogus data, we can ignore it
+                   (message "parse error"))))
               (when json
                 (setq json (plist-put json :jsonrpc-json json-str))
                 (push json queue)))))

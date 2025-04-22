@@ -217,6 +217,13 @@ The message is sent differently based on connection type:
                    (if endpoint-waitp
                        (setf (mcp--endpoint conn) json-str)
                      (push (cons index json-str) parsed-messages)
+                     (cl-incf index)))))
+              ((not (string= buf ""))
+               (let ((json-str (string-trim line)))
+                 (unless (string-empty-p json-str)
+                   (if endpoint-waitp
+                       (setf (mcp--endpoint conn) json-str)
+                     (push (cons index json-str) parsed-messages)
                      (cl-incf index)))))))
             ('stdio
              (let ((json-str (string-trim line)))
@@ -236,7 +243,8 @@ The message is sent differently based on connection type:
                                                 :false-object :json-false))
                 (error
                  ;; If the last data parsing fails, it may be due to incomplete data transmission.
-                 (when (not (= index (- (length parsed-messages) 1)))
+                 (when (or (not (process-get proc 'jsonrpc-pending))
+                           (not (= index (- (length parsed-messages) 1))))
                    (jsonrpc--warn "Invalid JSON: %s %s"
                                   (cdr err) json-str))
                  (if (string-prefix-p "{" json-str)
@@ -246,6 +254,7 @@ The message is sent differently based on connection type:
                    ;; server might be sending bogus data, we can ignore it
                    (message "parse error"))))
               (when json
+                (process-put proc 'jsonrpc-pending nil)
                 (setq json (plist-put json :jsonrpc-json json-str))
                 (push json queue)))))
 

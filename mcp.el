@@ -39,6 +39,15 @@
   :group 'mcp
   :type 'integer)
 
+(defcustom mcp-server-wait-initial-time 2
+  "Seconds to wait after server init before fetching MCP resources.
+
+This delay is applied after server initialization completes, but
+before requesting tools, prompts and resources. Gives the server
+time to fully initialize all components before handling requests."
+  :group 'mcp
+  :type 'integer)
+
 (defcustom mcp-log-level 'info
   "The min log level for mcp server.
 Available levels:
@@ -499,15 +508,19 @@ in the `mcp-server-connections` hash table for future reference."
                                   (mcp-async-set-log-level connection mcp-log-level))
                                 (when initial-callback
                                   (funcall initial-callback connection))
-                                ;; Get prompts
-                                (when (plist-member capabilities :prompts)
-                                  (mcp-async-list-prompts connection prompts-callback))
-                                ;; Get tools
-                                (when (plist-member capabilities :tools)
-                                  (mcp-async-list-tools connection tools-callback))
-                                ;; Get resources
-                                (when (plist-member capabilities :resources)
-                                  (mcp-async-list-resources connection resources-callback))
+                                (run-with-idle-timer mcp-server-wait-initial-time
+                                                     nil
+                                                     #'(lambda ()
+                                                         ;; Get prompts
+                                                         (when (plist-member capabilities :prompts)
+                                                           (mcp-async-list-prompts connection prompts-callback))
+                                                         ;; Get tools
+                                                         (when (plist-member capabilities :tools)
+                                                           (mcp-async-list-tools connection tools-callback))
+                                                         ;; Get resources
+                                                         (when (plist-member capabilities :resources)
+                                                           (mcp-async-list-resources connection resources-callback)))
+                                                     )
                                 (setf (mcp--status connection)
                                       'connected))
                             (progn

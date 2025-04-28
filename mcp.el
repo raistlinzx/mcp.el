@@ -207,8 +207,15 @@ The message is sent differently based on connection type:
     (with-current-buffer (process-buffer proc)
       (let* ((conn (process-get proc 'jsonrpc-connection))
              (queue (or (process-get proc 'jsonrpc-mqueue) nil))
-             (buf (or (process-get proc 'jsonrpc-pending) ""))
-             (data (concat buf string))
+             (buf (or (process-get proc 'jsonrpc-pending)
+                      (plist-get (process-put
+                                  proc 'jsonrpc-pending
+                                  (generate-new-buffer " *mcp-jsonrpc-pending*"))
+                                 'jsonrpc-pending)))
+             (data (with-current-buffer buf
+                     (goto-char (point-max))
+                     (insert string)
+                     (buffer-string)))
              (type (mcp--connection-type conn))
              (parsed-messages nil)
              (lines (split-string data "\n"))
@@ -227,7 +234,7 @@ The message is sent differently based on connection type:
                        (setf (mcp--endpoint conn) json-str)
                      (push (cons index json-str) parsed-messages)
                      (cl-incf index)))))
-              ((not (string= buf ""))
+              ((not (with-current-buffer buf (= (point-min) (point-max))))
                (let ((json-str (string-trim line)))
                  (unless (string-empty-p json-str)
                    (if endpoint-waitp
@@ -241,6 +248,7 @@ The message is sent differently based on connection type:
                  (cl-incf index))))))
         (setq parsed-messages (nreverse parsed-messages))
 
+        (with-current-buffer buf (erase-buffer))
         ;; Add messages to MQUEUE
         (dolist (msg parsed-messages)
           (pcase-let ((`(,index . ,json-str) msg))
@@ -252,18 +260,20 @@ The message is sent differently based on connection type:
                                                 :false-object :json-false))
                 (error
                  ;; If the last data parsing fails, it may be due to incomplete data transmission.
-                 (when (or (not (process-get proc 'jsonrpc-pending))
-                           (not (= index (- (length parsed-messages) 1))))
+                 (unless (= index (1- (length parsed-messages)))
                    (jsonrpc--warn "Invalid JSON: %s %s"
                                   (cdr err) json-str))
                  (if (string-prefix-p "{" json-str)
                      ;; Save remaining data to pending for next processing
-                     (process-put proc 'jsonrpc-pending json-str)
+                     (with-current-buffer buf
+                       (goto-char (point-max))
+                       (insert json-str)
+                       (process-put proc 'jsonrpc-pending buf))
                    ;; When the data is obviously not a partial json message, the
                    ;; server might be sending bogus data, we can ignore it
-                   (message "parse error"))))
+                   (message "[mcp] %s: %s" (propertize "parse-error" 'face 'error)  json-str))))
               (when json
-                (process-put proc 'jsonrpc-pending nil)
+                (with-current-buffer buf (erase-buffer))
                 (setq json (plist-put json :jsonrpc-json json-str))
                 (push json queue)))))
 

@@ -221,7 +221,9 @@ The message is sent differently based on connection type:
               ((string-prefix-p "event: endpoint" line)
                (setq endpoint-waitp t))
               ((string-prefix-p "data: " line)
-               (let ((json-str (string-trim (substring line 6))))
+               (let ((json-str (if (string-match "http://[^/]+\\(/[^[:space:]]+\\)" line)
+                                  (match-string 1 line)
+                                (string-trim (substring line 6)))))
                  (unless (string-empty-p json-str)
                    (if endpoint-waitp
                        (setf (mcp--endpoint conn) json-str)

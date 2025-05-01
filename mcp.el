@@ -251,31 +251,33 @@ The message is sent differently based on connection type:
         (with-current-buffer buf (erase-buffer))
         ;; Add messages to MQUEUE
         (dolist (msg parsed-messages)
-          (pcase-let ((`(,index . ,json-str) msg))
-            (let ((json nil))
+          (pcase-let ((`(,_index . ,json-str) msg))
+            (let ((json nil)
+                  (json-str (with-current-buffer buf
+                              (if (= (point-min) (point-max))
+                                  json-str
+                                (goto-char (point-max))
+                                (insert json-str)
+                                (buffer-string)))))
               (condition-case-unless-debug err
                   (setq json (json-parse-string json-str
                                                 :object-type 'plist
                                                 :null-object nil
                                                 :false-object :json-false))
-                (error
-                 ;; If the last data parsing fails, it may be due to incomplete data transmission.
-                 (unless (= index (1- (length parsed-messages)))
-                   (jsonrpc--warn "Invalid JSON: %s %s"
-                                  (cdr err) json-str))
-                 (if (string-prefix-p "{" json-str)
-                     ;; Save remaining data to pending for next processing
-                     (with-current-buffer buf
-                       (goto-char (point-max))
-                       (insert json-str)
-                       (process-put proc 'jsonrpc-pending buf))
-                   ;; When the data is obviously not a partial json message, the
-                   ;; server might be sending bogus data, we can ignore it
-                   (message "[mcp] %s: %s" (propertize "parse-error" 'face 'error)  json-str))))
+                (json-parse-error
+                 ;; parse error and not because of incomplete json
+                 (jsonrpc--warn "Invalid JSON: %s\t %s" (cdr err) json-str))
+                (json-end-of-file
+                 ;; Save remaining data to pending for next processing
+                 (with-current-buffer buf
+                   (goto-char (point-max))
+                   (insert json-str)
+                   (process-put proc 'jsonrpc-pending buf))))
               (when json
                 (with-current-buffer buf (erase-buffer))
-                (setq json (plist-put json :jsonrpc-json json-str))
-                (push json queue)))))
+                (when (listp json)
+                  (setq json (plist-put json :jsonrpc-json json-str))
+                  (push json queue))))))
 
         ;; Save updated queue
         (process-put proc 'jsonrpc-mqueue queue)

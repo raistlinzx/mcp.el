@@ -100,6 +100,9 @@ Available levels:
    (-port
     :initarg :port
     :accessor mcp--port)
+   (-tls
+    :initarg :tls
+    :accessor mcp--tls)
    (-endpoint
     :initform nil
     :accessor mcp--endpoint))
@@ -162,7 +165,8 @@ The message is sent differently based on connection type:
              (url-request-data (encode-coding-string
                                 json
                                 'utf-8))
-             (url (format "http://%s:%s%s"
+             (url (format "%s://%s:%s%s"
+                          (if (mcp--tls connection) "https" "http")
                           (mcp--host connection)
                           (mcp--port connection)
                           (mcp--endpoint connection))))
@@ -221,9 +225,10 @@ The message is sent differently based on connection type:
               ((string-prefix-p "event: endpoint" line)
                (setq endpoint-waitp t))
               ((string-prefix-p "data: " line)
-               (let ((json-str (if (string-match "http://[^/]+\\(/[^[:space:]]+\\)" line)
-                                  (match-string 1 line)
-                                (string-trim (substring line 6)))))
+               (let ((json-str (if (and endpoint-waitp
+                                        (string-match "http://[^/]+\\(/[^[:space:]]+\\)" line))
+                                   (match-string 1 line)
+                                 (string-trim (substring line 6)))))
                  (unless (string-empty-p json-str)
                    (if endpoint-waitp
                        (setf (mcp--endpoint conn) json-str)
@@ -258,6 +263,7 @@ The message is sent differently based on connection type:
                            (not (= index (- (length parsed-messages) 1))))
                    (jsonrpc--warn "Invalid JSON: %s %s"
                                   (cdr err) json-str))
+
                  (if (string-prefix-p "{" json-str)
                      ;; Save remaining data to pending for next processing
                      (process-put proc 'jsonrpc-pending json-str)
@@ -424,6 +430,7 @@ in the `mcp-server-connections` hash table for future reference."
                 (process-name (format "mcp-%s-server" name))
                 (process (pcase connection-type
                            ('sse
+                            (get-buffer-create buffer-name)
                             (open-network-stream process-name
                                                  buffer-name
                                                  (plist-get server-config :host)
@@ -475,7 +482,8 @@ in the `mcp-server-connections` hash table for future reference."
                                                  (funcall #'mcp-on-shutdown name))
                                  ,@(when (equal connection-type 'sse)
                                      (list :host (plist-get server-config :host)
-                                           :port (plist-get server-config :port))))))
+                                           :port (plist-get server-config :port)
+                                           :tls (plist-get server-config :tls))))))
             (initial-use-time 0)
             (initial-timer nil))
         ;; Initialize connection

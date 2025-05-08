@@ -77,6 +77,8 @@ that can be used for interaction.
 
 When ASYNCP is non-nil, the tools will be created asynchronously.
 
+When CATEGORYP is non-nil, the tools will be add to a category.
+
 Returns a list of text tools created from all valid tools across all
 connected servers. The list excludes any tools that couldn't be created
 due to missing or invalid names.
@@ -111,7 +113,8 @@ This function will attempt to start each server listed in `mcp-hub-servers'
 if it's not already running.
 
 Optional argument CALLBACK is a function to be called when all servers have
-either started successfully or failed to start. The callback receives no arguments."
+either started successfully or failed to start.The callback receives no
+arguments."
   (interactive)
   (let* ((servers-to-start (cl-remove-if (lambda (server)
                                            (gethash (car server) mcp-server-connections))
@@ -221,7 +224,7 @@ including connection status, available tools, resources, and prompts."
 
 ;;;###autoload
 (defun mcp-hub ()
-  "View mcp hub server"
+  "View mcp hub server."
   (interactive)
   ;; start all server
   (when (and mcp-hub-servers

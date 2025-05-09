@@ -57,7 +57,8 @@ receives no arguments."
                        :tools-callback
                        #'(lambda (_ _)
                            (mcp-hub-update)
-                           (funcall inited-callback))
+                           (when inited-callback
+                             (funcall inited-callback)))
                        :prompts-callback
                        #'(lambda (_ _)
                            (mcp-hub-update))

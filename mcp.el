@@ -31,7 +31,7 @@
 (require 'cl-lib)
 (require 'url)
 
-(defconst *MCP-VERSION* "2024-11-05"
+(defconst *MCP-VERSION* "2025-03-26"
   "MCP support version.")
 
 (defcustom mcp-server-start-time 60

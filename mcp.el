@@ -159,24 +159,8 @@ Available levels:
 
 (cl-defmethod initialize-instance :around ((conn mcp-http-process-connection) slots)
   "Init mcp process connection."
-  (cl-destructuring-bind (&key connection-type host port path tls request-dispatcher notification-dispatcher on-shutdown name initial-callback prompts-callback tools-callback resources-callback &allow-other-keys) slots
-    (setf (mcp--connection-type conn) connection-type)
-    (setf (mcp--host conn) host)
-    (setf (mcp--port conn) port)
-    (setf (mcp--path conn) path)
-    (setf (mcp--tls conn) tls)
-
-    (setf (mcp--initial-callback conn) initial-callback)
-    (setf (mcp--prompts-callback conn) prompts-callback)
-    (setf (mcp--tools-callback conn) tools-callback)
-    (setf (mcp--resources-callback conn) resources-callback)
-
-    (setf (jsonrpc--request-dispatcher conn) request-dispatcher)
-    (setf (jsonrpc--notification-dispatcher conn) notification-dispatcher)
-    (setf (jsonrpc--on-shutdown conn) on-shutdown)
-    (setf (jsonrpc-name conn) name)
-
-    (setf (jsonrpc--process conn) nil)))
+  (shared-initialize conn slots)
+  (setf (jsonrpc--process conn) nil))
 
 (cl-defmethod jsonrpc-running-p ((conn mcp-http-process-connection))
   "Return non-nil if JSONRPC connection CONN is running."

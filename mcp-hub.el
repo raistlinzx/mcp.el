@@ -228,13 +228,16 @@ including connection status, available tools, resources, and prompts."
       (tabulated-list-print t))))
 
 ;;;###autoload
-(defun mcp-hub ()
-  "View mcp hub server."
-  (interactive)
+(defun mcp-hub (&optional start)
+  "View mcp hub server.
+Start all server if START is non-nil or if called interactively with a prefix
+argument."
+  (interactive "P")
   ;; start all server
-  (when (and mcp-hub-servers
-           (= (hash-table-count mcp-server-connections)
-              0))
+  (when (and start
+             mcp-hub-servers
+             (= (hash-table-count mcp-server-connections)
+                0))
     (mcp-hub-start-all-server))
   ;; show buffer
   (pop-to-buffer "*Mcp-Hub*" nil)

@@ -166,6 +166,10 @@ Available levels:
   "Return non-nil if JSONRPC connection CONN is running."
   (mcp--running conn))
 
+(cl-defmethod jsonrpc-shutdown :after ((conn mcp-http-process-connection))
+  "Return non-nil if JSONRPC connection CONN is running."
+  (setf (mcp--running conn) nil))
+
 (defun parse-http-header (headers)
   "Parse HTTP response headers into a plist.
 

@@ -540,6 +540,7 @@ The message is sent differently based on connection type:
         (process-put proc 'jsonrpc-mqueue queue)))))
 
 (cl-defmethod mcp--connect-sse ((conn mcp-http-process-connection))
+  "Establish SSE (Server-Sent Events) connection for HTTP CONN."
   (let* ((name (jsonrpc-name conn))
          (buffer-name (format "*Mcp %s server*" name))
          (process-name (format "mcp-%s-server" name))
@@ -670,6 +671,7 @@ Returns nil if URL is invalid or not HTTP/HTTPS."
               :path filename)))))
 
 (defun mcp--send-initial-message (connection)
+  "Send initialization message to MCP server CONNECTION."
   (mcp-async-initialize-message
    connection
    #'(lambda (protocolVersion serverInfo capabilities)

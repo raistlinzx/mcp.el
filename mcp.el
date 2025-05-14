@@ -31,10 +31,7 @@
 (require 'cl-lib)
 (require 'url)
 
-(defconst *MCP-LAST-VERSION* "2024-11-05"
-  "MCP support version.")
-
-(defconst *MCP-VERSION* "2025-03-26"
+(defconst *MCP-VERSION* (list "2025-03-26" "2024-11-05")
   "MCP support version.")
 
 (defcustom mcp-server-start-time 60
@@ -681,8 +678,7 @@ Returns nil if URL is invalid or not HTTP/HTTPS."
   (mcp-async-initialize-message
    connection
    #'(lambda (protocolVersion serverInfo capabilities)
-       (if (or (string= protocolVersion *MCP-VERSION*)
-               (string= protocolVersion *MCP-LAST-VERSION*))
+       (if (cl-find protocolVersion *MCP-VERSION* :test #'string=)
            (progn
              (message "[mcp] Connected! Server `MCP (%s)' now managing." (jsonrpc-name connection))
              (setf (mcp--capabilities connection) capabilities
@@ -1015,7 +1011,7 @@ This function sends an `initialize' request to the server
 with the client's capabilities and version information."
   (jsonrpc-async-request connection
                          :initialize
-                         (list :protocolVersion *MCP-VERSION*
+                         (list :protocolVersion (car *MCP-VERSION*)
                                :capabilities '(:roots (:listChanged t))
                                :clientInfo '(:name "mcp-emacs" :version "0.1.0"))
                          :success-fn

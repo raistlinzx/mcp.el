@@ -102,7 +102,10 @@ Available levels:
     :accessor mcp--tools-callback)
    (-resources-callback
     :initarg :resources-callback
-    :accessor mcp--resources-callback))
+    :accessor mcp--resources-callback)
+   (-error-callback
+    :initarg :error-callback
+    :accessor mcp--error-callback))
   :documentation "A MCP connection over an Emacs process.")
 
 (defclass mcp-sse-process-connection (mcp-process-connection)
@@ -713,8 +716,8 @@ Returns nil if URL is invalid or not HTTP/HTTPS."
                     *MCP-VERSION*)
            (mcp-stop-server (jsonrpc-name connection)))))
    #'(lambda (code message)
-       (when error-callback
-         (funcall error-callback code message))
+       (when (mcp--error-callback connection)
+         (funcall (mcp--error-callback connection) code message))
        (setf (mcp--status connection)
              'error)
        (message "Sadly, mpc server reports %s: %s"
@@ -801,6 +804,7 @@ in the `mcp-server-connections` hash table for future reference."
                                  :prompts-callback ,prompts-callback
                                  :tools-callback ,tools-callback
                                  :resources-callback ,resources-callback
+                                 :error-callback ,error-callback
                                  ,@(when (equal connection-type 'http)
                                      (list :host (plist-get server-config :host)
                                            :port (plist-get server-config :port)

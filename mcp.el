@@ -348,64 +348,6 @@ The message is sent differently based on connection type:
              (line-index 0))
         (dolist (line lines)
           (pcase type
-            ('http
-             (if (mcp--sse conn)
-                 (cond
-                  ((and (<= (+ line-index 1) (length lines))
-                        (string-prefix-p "event:" (elt lines (+ line-index 1)))))
-                  ((string-prefix-p "event: endpoint" line)
-                   (setq endpoint-waitp t))
-                  ((string-prefix-p "data: " line)
-                   (let ((json-str (if (and endpoint-waitp
-                                            (string-match "http://[^/]+\\(/[^[:space:]]+\\)" line))
-                                       (match-string 1 line)
-                                     (string-trim (substring line 6)))))
-                     (unless (string-empty-p json-str)
-                       (if endpoint-waitp
-                           (progn
-                             ;; send initial
-                             (unless (mcp--endpoint conn)
-                               (setf (mcp--endpoint conn) json-str)
-                               (mcp--send-initial-message conn)))
-                         (push (cons parsed-index json-str) parsed-messages)
-                         (cl-incf parsed-index)))))
-                  ((and (mcp--endpoint conn)
-                        (not (or (string-prefix-p "2d" line)
-                                 (string-prefix-p ": ping" line)
-                                 (string-prefix-p "event: message" line)))
-                        (not (with-current-buffer buf (= (point-min) (point-max)))))
-                   (let ((json-str (string-trim line)))
-                     (unless (string-empty-p json-str)
-                       (push (cons parsed-index json-str) parsed-messages)
-                       (cl-incf parsed-index)))))
-               (cond
-                ((string-prefix-p "mcp-session-id" line)
-                 (setq mcp--session-id
-                       (string-trim (substring line 15))))
-                ((and (<= (+ line-index 1) (length lines))
-                      (string-prefix-p "event:" (elt lines (+ line-index 1)))))
-                ((string-prefix-p "data: " line)
-                 (let ((json-str (string-trim (substring line 6))))
-                   (unless (string-empty-p json-str)
-                     (push (cons parsed-index json-str) parsed-messages)
-                     (cl-incf parsed-index))))
-                ((and (not (or (string-prefix-p "2d" line)
-                               (string-prefix-p ": ping" line)
-                               (string-prefix-p "event: message" line)
-                               (string-prefix-p "id:" line)
-                               (string-prefix-p "X-Powered-By" line)
-                               (string-prefix-p "HTTP" line)
-                               (string-prefix-p "Content-Type" line)
-                               (string-prefix-p "Cache-Control" line)
-                               (string-prefix-p "Connection" line)
-                               (string-prefix-p "Date" line)
-                               (string-prefix-p "Transfer" line)
-                               (string-prefix-p "Keep-Alive" line)))
-                      (not (with-current-buffer buf (= (point-min) (point-max)))))
-                 (let ((json-str (string-trim line)))
-                   (unless (string-empty-p json-str)
-                     (push (cons parsed-index json-str) parsed-messages)
-                     (cl-incf parsed-index)))))))
             ('stdio
              (let ((json-str (string-trim line)))
                (unless (string-empty-p json-str)
@@ -463,6 +405,144 @@ The message is sent differently based on connection type:
         ;; Save final queue (might have been consumed by timer pop)
         (process-put proc 'jsonrpc-mqueue queue)))))
 
+(defvar mcp--http-in-process-filter nil
+  "Non-nil if inside `mcp--http-process-filter'.")
+
+(cl-defun mcp--http-process-filter (proc string)
+  "Called when new data STRING has arrived for PROC."
+  (when mcp--http-in-process-filter
+    ;; Problematic recursive process filters may happen if
+    ;; `jsonrpc-connection-receive', called by us, eventually calls
+    ;; client code which calls `process-send-string' (which see) to,
+    ;; say send a follow-up message.  If that happens to writes enough
+    ;; bytes for pending output to be received, we will lose JSONRPC
+    ;; messages.  In that case, remove recursiveness by re-scheduling
+    ;; ourselves to run from within a timer as soon as possible
+    ;; (bug#60088)
+    (run-at-time 0 nil #'mcp--http-process-filter proc string)
+    (cl-return-from mcp--http-process-filter))
+  (when (buffer-live-p (process-buffer proc))
+    (with-current-buffer (process-buffer proc)
+      (let* ((conn (process-get proc 'jsonrpc-connection))
+             (queue (or (process-get proc 'jsonrpc-mqueue) nil))
+             (buf (or (process-get proc 'jsonrpc-pending)
+                      (plist-get (process-put
+                                  proc 'jsonrpc-pending
+                                  (generate-new-buffer " *mcp-http-jsonrpc-pending*"))
+                                 'jsonrpc-pending)))
+             (message-rest-size (or (process-get proc 'jsonrpc-message-rest-size)
+                                    0))
+             (type (mcp--connection-type conn))
+             (parsed-messages nil)
+             (data-blocks (split-string string "\r\n\r\n")))
+        (dolist (data-block data-blocks)
+          (when-let* ((data-block (string-trim data-block)))
+            (unless (string-empty-p data-block)
+              (if (string-prefix-p "HTTP" data-block)
+                  (if-let* ((headers (parse-http-header data-block))
+                            (response-code (plist-get headers :response-code))
+                            (content-type (plist-get headers :content-type)))
+                      (when (or (not (string= response-code "200"))
+                                (not (string-match "text/event-stream" content-type)))
+                        ;; sse not connect success
+                        (message "sse not connect, return code: %s" response-code))
+                    ;; can't parse headers
+                    (message "can't parse headers: %s" data-block))
+                (if (= 0 message-rest-size)
+                    (let* ((data-line (split-string data-block "\n"))
+                           (data-size-line (cl-first data-line))
+                           (event-line (cl-second data-line))
+                           (id-line (when-let* ((id-line (cl-third data-line)))
+                                      (if (string-prefix-p "id" id-line)
+                                          id-line)))
+                           (data-body (if id-line
+                                          (cl-fourth data-line)
+                                        (cl-third data-line)))
+                           (data (when data-body
+                                   (string-trim (substring data-body 6)))))
+                      (when-let* ((data-size (string-to-number (string-trim data-size-line)
+                                                               16))
+                                  (event-type (if (string-match "ping" event-line)
+                                                  'ping
+                                                (intern (string-trim (substring event-line 6)))))
+                                  (body-size (length (string-trim (string-join (cdr data-line) "\n"))))
+                                  (rest-size (- data-size
+                                                2
+                                                ;; only sse need add 2
+                                                (if (mcp--sse conn)
+                                                    2
+                                                  0)
+                                                body-size)))
+                        (pcase event-type
+                          ('endpoint
+                           (let* ((endpoint (if (string-match "http://[^/]+\\(/[^[:space:]]+\\)" data)
+                                                (match-string 1 data)
+                                              data)))
+                             (unless (mcp--endpoint conn)
+                               (setf (mcp--endpoint conn) endpoint)
+                               (mcp--send-initial-message conn))))
+                          ('message
+                           (if (= 0 rest-size)
+                               (push data
+                                     parsed-messages)
+                             (process-put proc 'jsonrpc-message-rest-size rest-size)
+                             (with-current-buffer buf
+                               (goto-char (point-max))
+                               (insert data))))
+                          (t))))
+                  (let* ((data-block-size (length data-block))
+                         (new-message-rest-size (- message-rest-size data-block-size)))
+                    (process-put proc 'jsonrpc-message-rest-size new-message-rest-size)
+                    (with-current-buffer buf
+                      (goto-char (point-max))
+                      (insert (string-trim data-block))
+                      (when (= 0 new-message-rest-size)
+                        (push (buffer-string)
+                              parsed-messages)
+                        (erase-buffer)))))))))
+
+        (setq parsed-messages (nreverse parsed-messages))
+
+        ;; Add messages to MQUEUE
+        (dolist (json-str parsed-messages)
+          (let ((json nil)
+                (json-str (with-current-buffer buf
+                            (if (= (point-min) (point-max))
+                                json-str
+                              (goto-char (point-max))
+                              (insert json-str)
+                              (buffer-string)))))
+            (condition-case-unless-debug err
+                (setq json (json-parse-string json-str
+                                              :object-type 'plist
+                                              :null-object nil
+                                              :false-object :json-false))
+              (json-parse-error
+               ;; parse error and not because of incomplete json
+               (jsonrpc--warn "Invalid JSON: %s\t %s" (cdr err) json-str)))
+            (when json
+              (when (listp json)
+                (setq json (plist-put json :jsonrpc-json json-str))
+                (push json queue)))))
+
+        ;; Save updated queue
+        (process-put proc 'jsonrpc-mqueue queue)
+
+        ;; Dispatch messages in timer
+        (cl-loop with time = (current-time)
+                 for msg = (pop queue) while msg
+                 do (let ((timer (timer-create)))
+                      (timer-set-time timer time)
+                      (timer-set-function timer
+                                          (lambda (conn msg)
+                                            (with-temp-buffer
+                                              (jsonrpc-connection-receive conn msg)))
+                                          (list conn msg))
+                      (timer-activate timer)))
+
+        ;; Save final queue (might have been consumed by timer pop)
+        (process-put proc 'jsonrpc-mqueue queue)))))
+
 (cl-defmethod mcp--connect-sse ((conn mcp-http-process-connection))
   (let* ((name (jsonrpc-name conn))
          (buffer-name (format "*Mcp %s server*" name))
@@ -489,7 +569,7 @@ The message is sent differently based on connection type:
       (process-put proc 'jsonrpc-stderr stderr-buffer))
     (setf (jsonrpc--process conn) proc)
     (set-process-buffer proc (get-buffer-create (format " *%s output*" name)))
-    (set-process-filter proc #'mcp--process-filter)
+    (set-process-filter proc #'mcp--http-process-filter)
     (set-process-sentinel proc #'jsonrpc--process-sentinel)
     (with-current-buffer (process-buffer proc)
       (buffer-disable-undo)

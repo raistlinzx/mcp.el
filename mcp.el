@@ -279,29 +279,23 @@ The message is sent differently based on connection type:
                                    (mcp--connect-sse connection))
                                  (unless (mcp--sse connection)
                                    (when-let* ((content-type (plist-get headers-plist :content-type)))
-                                     (when (string= content-type "text/event-stream"))
-                                     (let ((event )
-                                           (id)
-                                           (data)
-                                           (json))
-                                       (dolist (line (split-string body "\n"))
-                                         (cond
-                                          ((string-prefix-p "event: " line)
-                                           (setq event (string-trim (substring line 7))))
-                                          ((string-prefix-p "id: " line)
-                                           (setq id (string-trim (substring line 3))))
-                                          ((string-prefix-p "data: " line)
-                                           (setq data (string-trim (substring line 5))))))
-                                       (condition-case-unless-debug err
-                                           (setq json (json-parse-string data
-                                                                         :object-type 'plist
-                                                                         :null-object nil
-                                                                         :false-object :json-false))
-                                         (json-parse-error
-                                          ;; parse error and not because of incomplete json
-                                          (jsonrpc--warn "Invalid JSON: %s\t %s" (cdr err) json-str)))
-                                       (when json
-                                         (jsonrpc-connection-receive connection json)))))))
+                                     (when (string= content-type "text/event-stream")
+                                       (let ((data)
+                                             (json))
+                                         (dolist (line (split-string body "\n"))
+                                           (cond
+                                            ((string-prefix-p "data: " line)
+                                             (setq data (string-trim (substring line 5))))))
+                                         (condition-case-unless-debug err
+                                             (setq json (json-parse-string data
+                                                                           :object-type 'plist
+                                                                           :null-object nil
+                                                                           :false-object :json-false))
+                                           (json-parse-error
+                                            ;; parse error and not because of incomplete json
+                                            (jsonrpc--warn "Invalid JSON: %s\t %s" (cdr err) data)))
+                                         (when json
+                                           (jsonrpc-connection-receive connection json))))))))
                              (kill-buffer))))))
       ('stdio
        (process-send-string
@@ -348,7 +342,6 @@ The message is sent differently based on connection type:
              (parsed-messages nil)
              (lines (split-string data "\n"))
              (parsed-index 0)
-             (endpoint-waitp nil)
              (line-index 0))
         (dolist (line lines)
           (pcase type
@@ -436,7 +429,6 @@ The message is sent differently based on connection type:
                                  'jsonrpc-pending)))
              (message-rest-size (or (process-get proc 'jsonrpc-message-rest-size)
                                     0))
-             (type (mcp--connection-type conn))
              (parsed-messages nil)
              (data-blocks (split-string string "\r\n\r\n")))
         (dolist (data-block data-blocks)
@@ -493,7 +485,7 @@ The message is sent differently based on connection type:
                              (with-current-buffer buf
                                (goto-char (point-max))
                                (insert data))))
-                          (t))))
+                          (_))))
                   (let* ((data-block-size (length data-block))
                          (new-message-rest-size (- message-rest-size data-block-size)))
                     (process-put proc 'jsonrpc-message-rest-size new-message-rest-size)

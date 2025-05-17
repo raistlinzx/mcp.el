@@ -90,7 +90,10 @@ Available levels:
     :accessor mcp--tools)
    (-resources
     :initform nil
-    :accessor mcp--resources))
+    :accessor mcp--resources)
+   (-template-resources
+    :initform nil
+    :accessor mcp--template-resources))
   :documentation "A MCP connection over an Emacs process.")
 
 (defclass mcp-sse-process-connection (mcp-process-connection)
@@ -410,7 +413,8 @@ Returns nil if URL is invalid or not HTTP/HTTPS."
 ;;;###autoload
 (cl-defun mcp-connect-server (name &key command args url env initial-callback
                                    tools-callback prompts-callback
-                                   resources-callback error-callback)
+                                   resources-callback resources-templates-callback
+                                   error-callback)
   "Connect to an MCP server with NAME, COMMAND, and ARGS or URL.
 
 NAME is a string representing the name of the server.
@@ -547,7 +551,10 @@ in the `mcp-server-connections` hash table for future reference."
                                                                (mcp-async-list-tools connection tools-callback))
                                                              ;; Get resources
                                                              (when (plist-member capabilities :resources)
-                                                               (mcp-async-list-resources connection resources-callback)))
+                                                               (mcp-async-list-resources connection resources-callback))
+                                                             ;; Get templace resources
+                                                             (when (plist-member capabilities :resources)
+                                                               (mcp-async-list-resource-templates connection resources-templates-callback)))
                                                          )
                                     (setf (mcp--status connection)
                                           'connected))
@@ -960,6 +967,8 @@ function to call if an error occurs during the request."
                          :success-fn
                          #'(lambda (res)
                              (cl-destructuring-bind (&key resourceTemplates &allow-other-keys) res
+                               (setf (mcp--template-resources connection)
+                                     resourceTemplates)
                                (when callback
                                  (funcall callback connection resourceTemplates))))
                          :error-fn

@@ -124,9 +124,9 @@ Optional argument SERVERS is a list of server names (strings) to filter which
 servers should be started. When nil, all configured servers are considered."
   (interactive)
   (let* ((servers-to-start (cl-remove-if (lambda (server)
-                                           (if servers
-                                               (not (cl-find (car server) servers :test #'string=))
-                                             (gethash (car server) mcp-server-connections)))
+                                           (or (and servers
+                                                    (not (cl-find (car server) servers :test #'string=)))
+                                               (mcp--server-running-p (car server))))
                                          mcp-hub-servers))
          (total (length servers-to-start))
          (started 0))
@@ -200,7 +200,7 @@ When SILENT is non-nil, suppress any status messages.
 This function refreshes the *Mcp-Hub* buffer with the latest server information,
 including connection status, available tools, resources, template resources and
 prompts."
-  (interactive "P")
+  (interactive)
   (when-let* ((server-list (mcp-hub-get-servers))
               (server-show (mapcar #'(lambda (server)
                                        (let* ((name (plist-get server :name))

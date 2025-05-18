@@ -668,6 +668,8 @@ PROMPTS-CALLBACK is a function called to handle the list of prompts
 provided by the server.
 RESOURCES-CALLBACK is a function called to handle the list of
 resources provided by the server.
+RESOURCES-TEMPLATES-CALLBACK is a function called to handle the list of
+resources-templates provided by the server.
 ERROR-CALLBACK is a function to call on error.
 
 This function creates a new process for the server, initializes a connection,

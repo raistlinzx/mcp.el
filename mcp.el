@@ -748,7 +748,7 @@ in the `mcp-server-connections` hash table for future reference."
                                    (when (or (equal connection-type 'stdio)
                                              (equal connection-type 'http))
                                      (mcp--send-initial-message connection))
-                                 (mcp-stop-server initial-timer)
+                                 (mcp-stop-server (jsonrpc-name connection))
                                  (setf (mcp--status connection) 'error)
                                  (when error-callback
                                    (funcall error-callback -1 "process start error"))

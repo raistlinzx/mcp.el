@@ -908,8 +908,8 @@ On error, displays an error message with the server's response code and message.
                          #'(lambda (res)
                              (message "[mcp] setLevel success: %s" res))
                          :error-fn (jsonrpc-lambda (&key code message _data)
-                                     (message "Sadly, mpc server reports %s: %s"
-                                              code message))))
+                                     (message "Sadly, %s mpc server reports %s: %s"
+                                              (jsonrpc-name connection) code message))))
 
 (defun mcp-async-ping (connection)
   "Send an asynchronous ping request to the MCP server via CONNECTION.
@@ -924,8 +924,8 @@ On error, it displays an error message with the code from the server."
                          #'(lambda (res)
                              (message "[mcp] ping success: %s" res))
                          :error-fn (jsonrpc-lambda (&key code message _data)
-                                     (message "Sadly, mpc server reports %s: %s"
-                                              code message))))
+                                     (message "Sadly, %s mpc server reports %s: %s"
+                                              (jsonrpc-name connection) code message))))
 
 (defun mcp-async-initialize-message (connection callback &optional error-callback)
   "Sending an `initialize' request to the CONNECTION.
@@ -949,8 +949,8 @@ with the client's capabilities and version information."
                          (jsonrpc-lambda (&key code message _data)
                            (if error-callback
                                (funcall error-callback code message)
-                             (message "Sadly, mpc server reports %s: %s"
-                                      code message)))
+                             (message "Sadly, %s mpc server reports %s: %s"
+                                      (jsonrpc-name connection) code message)))
                          :timeout mcp-server-start-time
                          :timeout-fn (lambda ()
                                        (if error-callback
@@ -981,8 +981,8 @@ The result is stored in the `mcp--tools' slot of the CONNECTION object."
                          (jsonrpc-lambda (&key code message _data)
                            (if error-callback
                                (funcall error-callback code message)
-                             (message "Sadly, mpc server reports %s: %s"
-                                      code message)))))
+                             (message "Sadly, %s mpc server reports %s: %s"
+                                      (jsonrpc-name connection) code message)))))
 
 (defun mcp-call-tool (connection name arguments)
   "Call a tool on the remote CONNECTION with NAME and ARGUMENTS.
@@ -1041,8 +1041,8 @@ The result is stored in the `mcp--prompts' slot of the CONNECTION object."
                          (jsonrpc-lambda (&key code message _data)
                            (if error-callback
                                (funcall error-callback code message)
-                             (message "Sadly, mpc server reports %s: %s"
-                                      code message)))))
+                             (message "Sadly, %s mpc server reports %s: %s"
+                                      (jsonrpc-name connection) code message)))))
 
 (defun mcp-get-prompt (connection name arguments)
   "Call a prompt on the remote CONNECTION with NAME and ARGUMENTS.
@@ -1100,8 +1100,8 @@ The result is stored in the `mcp--resources' slot of the CONNECTION object."
                          (jsonrpc-lambda (&key code message _data)
                            (if error-callback
                                (funcall error-callback code message)
-                             (message "Sadly, mpc server reports %s: %s"
-                                      code message)))))
+                             (message "Sadly, %s mpc server reports %s: %s"
+                                      (jsonrpc-name connection) code message)))))
 (defun mcp-read-resource (connection uri)
   "Call a resource on the remote CONNECTION with URI.
 
@@ -1152,8 +1152,8 @@ function to call if an error occurs during the request."
                          (jsonrpc-lambda (&key code message _data)
                            (if error-callback
                                (funcall error-callback code message)
-                             (message "Sadly, mpc server reports %s: %s"
-                                      code message)))))
+                             (message "Sadly, %s mpc server reports %s: %s"
+                                      (jsonrpc-name connection) code message)))))
 
 (provide 'mcp)
 ;;; mcp.el ends here

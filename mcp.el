@@ -640,12 +640,12 @@ Returns nil if URL is invalid or not HTTP/HTTPS."
                     *MCP-VERSION*)
            (mcp-stop-server (jsonrpc-name connection)))))
    #'(lambda (code message)
+       (mcp-stop-server (jsonrpc-name connection))
+       (setf (mcp--status connection) 'error)
        (when (mcp--error-callback connection)
          (funcall (mcp--error-callback connection) code message))
-       (setf (mcp--status connection)
-             'error)
-       (message "Sadly, mpc server reports %s: %s"
-                code message))))
+       (message "Sadly, %s mpc server reports %s: %s"
+                (jsonrpc-name connection) code message))))
 
 ;;;###autoload
 (cl-defun mcp-connect-server (name &key command args url env initial-callback
@@ -674,7 +674,8 @@ ERROR-CALLBACK is a function to call on error.
 This function creates a new process for the server, initializes a connection,
 and sends an initialization message to the server. The connection is stored
 in the `mcp-server-connections` hash table for future reference."
-  (unless (gethash name mcp-server-connections)
+  (unless (when-let* ((conn (gethash name mcp-server-connections)))
+            (not (member (mcp--status conn) '(stop error))))
     (when-let* ((server-config (cond (command
                                       (list :connection-type 'stdio
                                             :command command
@@ -735,33 +736,22 @@ in the `mcp-server-connections` hash table for future reference."
                                      (list :host (plist-get server-config :host)
                                            :port (plist-get server-config :port)
                                            :tls (plist-get server-config :tls)
-                                           :path (plist-get server-config :path))))))
-            (initial-use-time 0)
-            (initial-timer nil))
+                                           :path (plist-get server-config :path)))))))
         ;; Initialize connection
         (puthash name connection mcp-server-connections)
         ;; Send the Initialize message
-        (setf initial-timer
-              (run-with-idle-timer
-               1
-               t
-               #'(lambda ()
-                   (cl-incf initial-use-time)
-                   (if (jsonrpc-running-p connection)
-                       (when (or (equal connection-type 'stdio)
-                                 (equal connection-type 'http))
-                         (cancel-timer initial-timer)
-                         (mcp--send-initial-message connection)
-                         (when (> initial-use-time mcp-server-start-time)
-                           (mcp-stop-server name)
-                           (cancel-timer initial-timer)
-                           (message "Sadly: mcp server start error timeout")))
-                     (cancel-timer initial-timer)
-                     (when error-callback
-                       (funcall error-callback -1 "mcp server process start error")
-                       (setf (mcp--status connection)
-                             'error)
-                       (message "Sadly, %s mcp server process start error" name))))))))))
+        (run-with-idle-timer 1
+                             nil
+                             (lambda ()
+                               (if (jsonrpc-running-p connection)
+                                   (when (or (equal connection-type 'stdio)
+                                             (equal connection-type 'http))
+                                     (mcp--send-initial-message connection))
+                                 (mcp-stop-server initial-timer)
+                                 (setf (mcp--status connection) 'error)
+                                 (when error-callback
+                                   (funcall error-callback -1 "process start error"))
+                                 (message "Sadly, %s mcp server process start error" name))))))))
 
 ;;;###autoload
 (defun mcp-stop-server (name)
@@ -772,7 +762,7 @@ a message will be displayed indicating that the server is not running."
   (if-let* ((connection (gethash name mcp-server-connections)))
       (progn
         (jsonrpc-shutdown connection)
-        (setf (gethash name mcp-server-connections) nil))
+        (setf (mcp--status connection) 'stop))
     (message "mcp %s server not started" name)))
 
 (defun mcp--parse-tool-args (properties required)
@@ -960,7 +950,13 @@ with the client's capabilities and version information."
                            (if error-callback
                                (funcall error-callback code message)
                              (message "Sadly, mpc server reports %s: %s"
-                                      code message)))))
+                                      code message)))
+                         :timeout mcp-server-start-time
+                         :timeout-fn (lambda ()
+                                       (if error-callback
+                                           (funcall error-callback 124 "timeout")
+                                         (message "Sadly, mcp server (%s) timed out"
+                                                  (jsonrpc-name connection))))))
 
 (defun mcp-async-list-tools (connection &optional callback error-callback)
   "Get a list of tools from the MCP server using the provided CONNECTION.

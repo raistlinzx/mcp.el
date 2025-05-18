@@ -631,8 +631,7 @@ Returns nil if URL is invalid or not HTTP/HTTPS."
                                       ;; Get templace resources
                                       (when (plist-member capabilities :resources)
                                         (mcp-async-list-resource-templates connection (mcp--resources-templates-callback connection)))))
-             (setf (mcp--status connection)
-                   'connected))
+             (setf (mcp--status connection) 'connected))
          (progn
            (message "[mcp] Error %s server protocolVersion(%s) not support, client Version: %s."
                     (jsonrpc-name connection)

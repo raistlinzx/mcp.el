@@ -371,7 +371,8 @@ The message is sent differently based on connection type:
                                            (cl-third data-line)))
                               (data (when data-body
                                       (string-trim (substring data-body 6)))))
-                         (when-let* ((data-size (string-to-number (string-trim data-size-line)
+                         (when-let* ((event-line event-line)
+                                     (data-size (string-to-number (string-trim data-size-line)
                                                                   16))
                                      (event-type (if (string-match "ping" event-line)
                                                      'ping
@@ -646,6 +647,11 @@ Returns nil if URL is invalid or not HTTP/HTTPS."
        (message "Sadly, %s mpc server reports %s: %s"
                 (jsonrpc-name connection) code message))))
 
+(defun mcp--server-running-p (name)
+  "Return non-nil if server NAME is in running state."
+  (when-let* ((conn (gethash name mcp-server-connections)))
+    (not (member (mcp--status conn) '(stop error)))))
+
 ;;;###autoload
 (cl-defun mcp-connect-server (name &key command args url env initial-callback
                                    tools-callback prompts-callback
@@ -675,8 +681,7 @@ ERROR-CALLBACK is a function to call on error.
 This function creates a new process for the server, initializes a connection,
 and sends an initialization message to the server. The connection is stored
 in the `mcp-server-connections` hash table for future reference."
-  (unless (when-let* ((conn (gethash name mcp-server-connections)))
-            (not (member (mcp--status conn) '(stop error))))
+  (unless (mcp--server-running-p name)
     (when-let* ((server-config (cond (command
                                       (list :connection-type 'stdio
                                             :command command
@@ -744,15 +749,18 @@ in the `mcp-server-connections` hash table for future reference."
         (run-with-idle-timer 1
                              nil
                              (lambda ()
-                               (if (jsonrpc-running-p connection)
-                                   (when (or (equal connection-type 'stdio)
-                                             (equal connection-type 'http))
-                                     (mcp--send-initial-message connection))
-                                 (mcp-stop-server (jsonrpc-name connection))
-                                 (setf (mcp--status connection) 'error)
-                                 (when error-callback
-                                   (funcall error-callback -1 "process start error"))
-                                 (message "Sadly, %s mcp server process start error" name))))))))
+                               (condition-case-unless-debug err
+                                   (if (jsonrpc-running-p connection)
+                                       (when (or (equal connection-type 'stdio)
+                                                 (equal connection-type 'http))
+                                         (mcp--send-initial-message connection))
+                                     (error "Process start error"))
+                                 (error
+                                  (mcp-stop-server (jsonrpc-name connection))
+                                  (setf (mcp--status connection) 'error)
+                                  (when error-callback
+                                    (funcall error-callback -1 (format "%s" (cdr err))))
+                                  (message "Sadly, %s mcp server process start error" name)))))))))
 
 ;;;###autoload
 (defun mcp-stop-server (name)

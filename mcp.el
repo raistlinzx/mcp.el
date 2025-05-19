@@ -235,7 +235,7 @@ The message is sent differently based on connection type:
          (json (jsonrpc--json-encode converted)))
     (pcase (mcp--connection-type connection)
       ('http
-       (let ((url-request-method "POST")
+       (let ((url-request-method "GET")
              (url-request-extra-headers
               `(("Content-Type" . "application/json")
                 ("Accept" . "application/json,text/event-stream")
@@ -509,9 +509,8 @@ The message is sent differently based on connection type:
                          (concat
                           (format "GET %s HTTP/1.1\r\n"
                                   path)
-                          (format "Host: %s:%s\r\n"
-                                  host
-                                  port)
+                          (format "Host: %s\r\n"
+                                  host)
                           "Accept: text/event-stream\r\n"
                           (if (mcp--sse conn)
                               ""

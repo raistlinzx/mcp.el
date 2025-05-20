@@ -239,7 +239,6 @@ The message is sent differently based on connection type:
              (url-request-extra-headers
               `(("Content-Type" . "application/json")
                 ("Accept" . "application/json,text/event-stream")
-                ("Host" . (format "%s" (mcp--host connection)))
                 ,@(when-let* ((session-id (mcp--session-id connection)))
                     `(("Mcp-Session-Id" . ,session-id)))))
              (url-request-data (encode-coding-string
